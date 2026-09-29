@@ -1,0 +1,18 @@
+# Allowlist: the image receives only what the Dockerfile copies.
+*
+!frontend/
+!requirements.lock
+!pyproject.toml
+!src/
+!examples/
+!LICENSE
+!third_party/
+
+frontend/node_modules
+frontend/dist
+frontend/test-results
+frontend/playwright-report
+**/__pycache__
+**/*.py[cod]
+**/provider.private.json
+**/provider-*.tmp

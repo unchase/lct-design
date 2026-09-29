@@ -1,0 +1,55 @@
+# Supplied task materials remain local; do not publish them implicitly.
+/temp/
+/tmp/
+/output/
+/artifacts/
+/data/
+
+# Local environments and secrets
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+dist/
+build/
+.cache/
+.coverage
+htmlcov/
+test-results/
+playwright-report/
+coverage/
+*.egg-info/
+*.log
+
+# Local working notes (not deliverables).
+/specs/
+/docs/research/
+/docs/implementation-ledger.md
+/PRODUCT.md
+/DESIGN.md
+
+# Credentials and scratch data, including custom data-directory names.
+**/provider.private.json
+**/provider-*.tmp
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+*.tmp
+*.bak
+*.orig
+*.rej
+*.swp
+.DS_Store
+Thumbs.db
+/.idea/
+/.vscode/

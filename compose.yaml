@@ -1,0 +1,19 @@
+services:
+  app:
+    build: .
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: ["lct-data:/data"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      LCT_RENDERER: local
+      LCT_APP_ROOT: /app
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 256
+    restart: unless-stopped
+volumes:
+  lct-data:

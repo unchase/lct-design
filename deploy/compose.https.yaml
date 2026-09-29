@@ -1,0 +1,30 @@
+# Optional overlay for a NEW server without existing Traefik.
+# Run from the repository root together with compose.production.yaml.
+services:
+  app:
+    build: .
+    pull_policy: build
+    labels:
+      traefik.enable: "false"
+      com.centurylinklabs.watchtower.enable: "false"
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      LCT_DOMAIN: ${LCT_DOMAIN:-forma.inflake.fun}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [intranet]
+    depends_on:
+      app:
+        condition: service_healthy
+networks:
+  intranet:
+    external: false
+    name: forma-public
+volumes:
+  caddy-data:
+  caddy-config:
