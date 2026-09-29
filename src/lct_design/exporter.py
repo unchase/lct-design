@@ -24,6 +24,14 @@ def prune(parts):
             if dest in parts and dest not in reachable: reachable.add(dest);queue.append(dest)
     return {k:v for k,v in parts.items() if k in reachable}
 
+def visual_accent(colors,background):
+    """First brand colour that stays visible on this slide's background (contrast >= 3:1)."""
+    from .audit import contrast
+    brand=[c for c in colors if len(c)==6 and c not in ('FFFFFF','000000','111111')]
+    try:return next(c for c in brand if contrast(c,background)>=3)
+    except (StopIteration,ValueError):
+        return max(brand+['3366AA','FFFFFF','111111'],key=lambda c:contrast(c,background))
+
 def generate_deck(template,profile,plan,variant,output,repairs=None):
     if variant not in ('sequential','comparison','focus'): raise ValueError('Unknown variant')
     parts=read_package(template);pres=parse_xml(parts['ppt/presentation.xml']);types=parse_xml(parts['[Content_Types].xml'])
@@ -98,8 +106,13 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
         if choice:
             boxes=[next(s.box for s in pattern.slots if s.id==sid) for sid in choice.body_slot_ids]
             if len(boxes)==1:boxes=variant_boxes(boxes[0],profile,variant,visual,len(slide.bullets))
-        box=boxes[0];accent=next((c for c in profile.colors if c not in ('FFFFFF','000000','111111') and int(c,16)<0xEEEEEE),'3366AA')
-        if visual and slide.bullets:
+        box=boxes[0];accent=visual_accent(profile.colors,pattern.background)
+        media=max(pattern.frames,key=lambda b:b.w*b.h) if visual and pattern.frames else None
+        if media:
+            # The template reserves this panel for media: the visual fills it, text keeps its slot.
+            if slide.bullets:text('\n'.join(slide.bullets),box,min(base.size,18),'caption')
+            box=Box(x=media.x+media.w*.05,y=media.y+media.h*.05,w=media.w*.9,h=media.h*.9)
+        elif visual and slide.bullets:
             text('\n'.join(slide.bullets),Box(x=box.x,y=box.y,w=box.w,h=box.h*.2),min(base.size,18),'caption')
             box=Box(x=box.x,y=box.y+box.h*.24,w=box.w,h=box.h*.76)
         if slide.table:
@@ -159,7 +172,8 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
         manifest['slides'].append({'number':index+1,'title':slide.title,'source_ids':slide.source_ids,'pattern_id':pattern.id,
             'layout_source':'llm' if choice else 'heuristic','body_slot_ids':choice.body_slot_ids if choice else [],
             'source_slide':pattern.index,'scope':pattern.scope,'background':pattern.background,'objects':objects,'speaker_notes':slide.speaker_notes,
-            'artwork':[b.model_dump() for b in visual_regions.get(pattern.id,[])]})
+            'artwork':[b.model_dump() for b in visual_regions.get(pattern.id,[])],
+            'frames':[b.model_dump() for b in pattern.frames],'frames_filled':bool(media)})
     parts['ppt/presentation.xml']=xml(pres);parts['ppt/_rels/presentation.xml.rels']=xml(pr)
     # Remove stale template thumbnail, notes and metadata relationships from the reachable graph.
     rootrels=parse_xml(parts['_rels/.rels'])

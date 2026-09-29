@@ -31,6 +31,7 @@ class Pattern(Model):
     confidence: float = .7
     visual_features: list[float] = []
     artwork: list[Box] = []
+    frames: list[Box] = []
 
 class TemplateProfile(Model):
     version: str = '1.0'

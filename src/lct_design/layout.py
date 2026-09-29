@@ -36,6 +36,14 @@ def pattern_limit(slides):
     """One composition may carry at most about a third of a deck."""
     return max(2,math.ceil(slides*.34))
 
+def card_row(pattern,profile):
+    """Two or more similar body cards side by side: the template's grid of equal blocks."""
+    bodies=sorted([s.box for s in pattern.slots if s.role=='body' and s.box.w>=profile.width*.12 and s.box.h>=profile.height*.12],key=lambda b:b.x)
+    if len(bodies)<2:return []
+    first=bodies[0]
+    row=[b for b in bodies if abs(b.y-first.y)<=profile.height*.05 and .6<=b.w*b.h/(first.w*first.h)<=1.6]
+    return row if len(row)>=2 else []
+
 def select_pattern(profile,slide,variant,index,visual_regions=None,usage=None,limit=None):
     eligible=[p for p in profile.patterns if p.family not in ('guide','code') and
               any(s.role=='title' and s.box.y<profile.height*.22 for s in p.slots)]
@@ -59,6 +67,15 @@ def select_pattern(profile,slide,variant,index,visual_regions=None,usage=None,li
             best=min(collision(p) for p in eligible)
             eligible=[p for p in eligible if collision(p)<=best+.005]
     usage=usage or {}
+    visual=bool(slide.chart or slide.table or slide.diagram or slide.image)
+    # Media frames (photo/screenshot panels) suit visuals; on text slides they stay empty.
+    if not visual:
+        unframed=[p for p in eligible if not p.frames]
+        if unframed:eligible=unframed
+    if variant=='focus' and not visual:
+        # Focus shows one message in one large region, not a grid of cards.
+        single=[p for p in eligible if not card_row(p,profile)]
+        if single:eligible=single
     if limit:
         # Avoid monotony: once a composition hits its share, choose among the others.
         rested=[p for p in eligible if usage.get(p.id,0)<limit]
@@ -72,6 +89,7 @@ def select_pattern(profile,slide,variant,index,visual_regions=None,usage=None,li
         score+=sum(3 for s in bodies if s.size>title.size*1.5)
         if variant=='comparison' and len(bodies) in (2,3):score-=.5
         if variant=='focus' and len(bodies)>1:score+=.5
+        if visual and p.frames:score-=1
         return score+usage.get(p.id,0)*.35
     eligible.sort(key=score)
     top=eligible[:min(2,len(eligible))]
@@ -79,6 +97,8 @@ def select_pattern(profile,slide,variant,index,visual_regions=None,usage=None,li
 
 def body_boxes(pattern,profile,variant,visual=False):
     bodies=[s for s in pattern.slots if s.role=='body']
+    cards=card_row(pattern,profile) if not visual else []
+    if cards and variant!='focus':return cards
     if bodies:
         box=max(bodies,key=lambda s:s.box.w*s.box.h).box.model_copy()
     else:

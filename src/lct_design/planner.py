@@ -25,7 +25,7 @@ def write_outline(content,slide_count,config=None,deadline=None):
 def catalogue(profile):
     semantics=profile.analysis.get('model_semantics',{}).get('patterns',{})
     return [{'id':p.id,'family':p.family,'background':p.background,'description':semantics.get(p.id,''),
-        'slots':[{'id':s.id,'role':s.role,'text_sample':s.text[:100],'font':s.font,'size':s.size,
+        'media_frame':bool(p.frames),'slots':[{'id':s.id,'role':s.role,'text_sample':s.text[:100],'font':s.font,'size':s.size,
           'box':[round(s.box.x/profile.width,3),round(s.box.y/profile.height,3),round(s.box.w/profile.width,3),round(s.box.h/profile.height,3)]} for s in p.slots[:30]]}
         for p in profile.patterns if p.family not in ('guide','code')][:100]
 
@@ -41,6 +41,9 @@ def validate_layouts(raw,profile,variants,visual=False):
         slots={s.id:s for s in p.slots if s.role=='body'}
         if len(set(choice.body_slot_ids))!=len(choice.body_slot_ids) or any(i not in slots for i in choice.body_slot_ids):raise ValueError('Invalid body slot IDs')
         if visual and len(choice.body_slot_ids)!=1:raise ValueError('Visual layout needs exactly one body slot')
+        if visual:
+            vb=slots[choice.body_slot_ids[0]].box
+            if vb.w<profile.width*.25 or vb.h<profile.height*.2:raise ValueError('Slot is too small for a chart, table or diagram')
         boxes=[slots[i].box for i in choice.body_slot_ids]+[s.box for s in p.slots if s.role=='title']
         from itertools import combinations
         if any(b.x<0 or b.y<0 or b.x+b.w>profile.width+1 or b.y+b.h>profile.height+1 for b in boxes):raise ValueError('Model layout extends outside slide')
@@ -51,6 +54,7 @@ def validate_layouts(raw,profile,variants,visual=False):
         else:clear=not any(covered(a,b)>a.w*a.h*.25 for a in content for b in p.artwork)
         if not clear:
             raise ValueError('Model layout places content over template artwork')
+        if not visual and p.frames:raise ValueError('Pattern reserves a media frame that text would leave empty')
         for a,b in combinations(boxes,2):
             overlap=max(0,min(a.x+a.w,b.x+b.w)-max(a.x,b.x))*max(0,min(a.y+a.h,b.y+b.h)-max(a.y,b.y))
             if overlap>min(a.w*a.h,b.w*b.h)*.03:raise ValueError('Model layout contains overlapping slots')

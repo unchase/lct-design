@@ -119,6 +119,14 @@ def create_app(data_dir=None,start_worker=True):
         payload=dict(job['payload']);payload['request']=dict(payload['request']);payload['request']['variants']=[request.variant]
         payload.update({'parent_id':id,'repairs':sorted(set(payload.get('repairs',[]))|set(repairs)),'selected_findings':request.finding_ids})
         return store.create(payload)
+    @app.get('/api/templates/{id}/slides/{number}.png')
+    def template_slide(id:str,number:int):
+        # Rendered source slide, for side-by-side comparison with a generated slide.
+        if not re.fullmatch('[a-f0-9]{32}',id) or not 1<=number<=999:raise HTTPException(404)
+        folder=root/'templates'/id/'render'
+        path=next((f for f in (folder/f'slide-{number:02d}.png',folder/f'slide-{number}.png') if f.is_file()),None)
+        if path is None:raise HTTPException(404,'Изображение исходного слайда ещё не подготовлено')
+        return FileResponse(path)
     @app.get('/api/jobs/{id}/artifacts/{variant}/{filename}')
     def artifact(id:str,variant:str,filename:str):
         get_job(id)

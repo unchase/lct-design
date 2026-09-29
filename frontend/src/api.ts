@@ -1,6 +1,6 @@
 export type Template={id:string;filename:string;slides:number;patterns:number;colors:string[];fonts:string[]};
 export type Finding={id:string;rule:string;message:string;severity:string;status:string;kind:string;slide:number|null;object_id:string|null;box:{x:number;y:number;w:number;h:number}|null;repair:string|null};
-export type Slide={number:number;title:string;speaker_notes?:string;source_ids:string[];pattern_id:string;objects:{id:string;box:{x:number;y:number;w:number;h:number};text:string;role:string}[]};
+export type Slide={number:number;title:string;speaker_notes?:string;source_ids:string[];pattern_id:string;source_slide:number;objects:{id:string;box:{x:number;y:number;w:number;h:number};text:string;role:string}[]};
 export type Variant={name:string;width:number;height:number;slides:Slide[];findings:Finding[];warnings:string[];render:{status:string;images:string[];error?:string};seconds:number;files:string[]};
 export type Job={id:string;status:string;stage:string;created:number;updated:number;error:string|null;cancelled:boolean;payload:{request:{content:{title:string};template_id:string};parent_id?:string};result:null|{variants:Variant[];mode:string;seconds:number;warnings:string[];template_name:string;inference?:Inference;usage?:Record<string,number>;parent_id?:string;timing?:{preparation_seconds:number;generation_seconds:number;budget_status:string}}};
 export async function api<T>(path:string,options?:RequestInit):Promise<T>{

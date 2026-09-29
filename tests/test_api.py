@@ -29,3 +29,13 @@ def test_configured_https_origin_works_behind_proxy(tmp_path,monkeypatch):
     with TestClient(create_app(tmp_path,start_worker=False)) as c:
         assert c.put('/api/provider',json={},headers={'Origin':'https://forma.inflake.fun'}).status_code==200
         assert c.put('/api/provider',json={},headers={'Origin':'https://other.example'}).status_code==403
+
+def test_template_source_slide_render_is_served_for_comparison(tmp_path):
+    from fastapi.testclient import TestClient
+    from lct_design.api import create_app
+    tid='a'*32;folder=tmp_path/'templates'/tid/'render';folder.mkdir(parents=True)
+    (folder/'slide-03.png').write_bytes(b'\x89PNG fake')
+    with TestClient(create_app(tmp_path,start_worker=False)) as c:
+        assert c.get(f'/api/templates/{tid}/slides/3.png').content==b'\x89PNG fake'
+        assert c.get(f'/api/templates/{tid}/slides/4.png').status_code==404
+        assert c.get('/api/templates/..%2F..%2Fx/slides/1.png').status_code==404

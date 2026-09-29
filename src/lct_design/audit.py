@@ -65,6 +65,8 @@ def audit_deck(manifest,render,profile=None,render_dir=None):
                 iw=min(b['x']+b['w'],art['x']+art['w'])-max(b['x'],art['x']);ih=min(b['y']+b['h'],art['y']+art['h'])-max(b['y'],art['y'])
                 if iw>0 and ih>0 and iw*ih>b['w']*b['h']*(.1 if o.get('role') in ('table','chart','image','smartart') else .25):
                     add('layout.artwork','Содержимое перекрывается с изображением шаблона',n,o,'error',evidence={'artwork':art});break
+        if slide.get('frames') and not slide.get('frames_filled'):
+            add('layout.empty_frame','Рамка шаблона под изображение осталась пустой',n,severity='warning',evidence={'frames':len(slide['frames'])})
         from .layout import estimate_lines
         used=0
         for o in objects:

@@ -6,7 +6,9 @@ from .package import NS,q,parse_xml,read_package,relationships
 from .models import Box,Slot,Pattern,TemplateProfile
 
 EMU=914400
-ANALYSIS_ALGORITHM='OOXML effective styles + geometry families + inherited artwork v5'
+# Sample prompts inside media frames ("Вставить фото", "Insert picture") are not content.
+PROMPT=re.compile(r'вставь?(?:те|ить)?\s*(?:сюда\s*)?(?:фото|изображени|картинк|скриншот|график)|insert\s*(?:your\s*)?(?:photo|picture|image)|^\s*(?:фото|photo|image|screenshot|скриншот)\s*$')
+ANALYSIS_ALGORITHM='OOXML effective styles + geometry families + inherited artwork + media frames v6'
 
 def linked(parts,part,kind):
     return next((dest for k,dest in relationships(parts,part).values() if k==kind and dest in parts),None)
@@ -84,6 +86,23 @@ def geometry(shape,chain):
         x=float(o.get('x'))+(x-float(co.get('x')))*sx;y=float(o.get('y'))+(y-float(co.get('y')))*sy;w*=sx;h*=sy
     return Box(x=x,y=y,w=w,h=h) if w>0 and h>0 else None
 
+def media_frames(tree,slots,width,height):
+    """Empty filled panels and picture placeholders reserved for screenshots, photos or charts."""
+    frames=[]
+    for shape in tree.findall('.//p:cSld/p:spTree//p:sp',NS):
+        if ''.join(shape.xpath('.//a:t/text()',namespaces=NS)).strip():continue
+        ph=placeholder(shape);sp=shape.find('p:spPr',NS)
+        if ph and ph[0] not in ('pic','media','clipArt','chart','tbl','obj'):continue
+        filled=bool(ph) or (sp is not None and sp.find('a:noFill',NS) is None and (sp.find('a:solidFill',NS) is not None or
+            sp.find('a:gradFill',NS) is not None or shape.find('p:style/a:fillRef',NS) is not None))
+        box=geometry(shape,[shape])
+        if not filled or box is None or not .06<=box.w*box.h/(width*height)<=.8:continue
+        # A panel under a text block is that block's card, not a free media area.
+        def inter(a,b):return max(0,min(a.x+a.w,b.x+b.w)-max(a.x,b.x))*max(0,min(a.y+a.h,b.y+b.h)-max(a.y,b.y))
+        if any(inter(box,s.box)>s.box.w*s.box.h*.3 for s in slots if s.role in ('title','body') and s.text.strip() and not PROMPT.search(s.text.lower())):continue
+        frames.append(box)
+    return frames
+
 def analyze_template(path:Path)->TemplateProfile:
     parts=read_package(path);pres=parse_xml(parts['ppt/presentation.xml']);size=pres.find('p:sldSz',NS)
     width,height=int(size.get('cx')),int(size.get('cy'));rels=relationships(parts,'ppt/presentation.xml')
@@ -150,10 +169,11 @@ def analyze_template(path:Path)->TemplateProfile:
             pb=geometry(picture,[picture])
             # Full-bleed pictures are backgrounds; smaller ones are content artwork to avoid.
             if pb and not (pb.x<=width*.03 and pb.y<=height*.03 and pb.x+pb.w>=width*.97 and pb.y+pb.h>=height*.97):artwork.append(pb)
+        frames=media_frames(tree,slots,width,height)
         feature=[n/10,sum(s.box.w*s.box.h for s in body)/width/height,title.box.y/height,title.size/100]
         patterns.append(Pattern(id=f'p{i+1}',part=part,index=i+1,scope=master or theme or part,
             slots=slots,family=family,background=background,complexity=len(tree.findall('.//p:sp',NS))+len(tree.findall('.//p:pic',NS))*2,
-            visual_features=feature,artwork=artwork))
+            visual_features=feature,artwork=artwork,frames=frames))
     if not patterns: raise ValueError('No editable text slots found in the presentation')
     return TemplateProfile(hash=hashlib.sha256(Path(path).read_bytes()).hexdigest(),filename=Path(path).name,
         width=width,height=height,colors=[c for c,_ in allcolors.most_common(32)],fonts=list(allfonts),
