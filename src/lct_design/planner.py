@@ -42,6 +42,15 @@ def validate_layouts(raw,profile,variants,visual=False):
         result[variant]=choice
     return result
 
+def lenient_layouts(raw,profile,variants,visual,number,warnings):
+    """Keep valid model choices; a rejected variant falls back to deterministic selection."""
+    raw=raw if isinstance(raw,dict) else {}
+    result={}
+    for variant in variants:
+        try:result.update(validate_layouts({variant:raw.get(variant)},profile,[variant],visual))
+        except ValueError as exc:warnings.append(f'Слайд {number}, вариант {variant}: выбор макета моделью отклонён ({exc}); применён детерминированный выбор.')
+    return result
+
 def plan_content(content:ContentPackage,profile,slide_count:int,mode:str,config=None,deadline=None,variants=None)->DeckPlan:
     variants=variants or ['sequential','comparison','focus']
     sections=list(content.sections)
@@ -65,7 +74,7 @@ def plan_content(content:ContentPackage,profile,slide_count:int,mode:str,config=
             src=[mapping[i] for i in ids];covered.extend(ids)
             title=item.get('title',src[0].title)
             if title not in [s.title for s in src]:title=src[0].title
-            s=src[0];layouts=validate_layouts(item.get('layouts'),profile,variants,bool(s.chart or s.table or s.diagram or s.image))
+            s=src[0];layouts=lenient_layouts(item.get('layouts'),profile,variants,bool(s.chart or s.table or s.diagram or s.image),len(out)+1,warnings)
             out.append(PlannedSlide(title=title,source_ids=ids,bullets=[b for section in src for b in section.bullets],
                 table=s.table,chart=s.chart,diagram=s.diagram,diagram_kind=s.diagram_kind,diagram_parents=s.diagram_parents,diagram_assistant=s.diagram_assistant,image=s.image,layouts=layouts))
         if set(covered)!=set(mapping) or len(covered)!=len(set(covered)) or not 1<=len(out)<=50:raise ValueError('Model plan must include each source exactly once (1–50 slides)')

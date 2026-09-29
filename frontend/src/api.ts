@@ -9,8 +9,9 @@ export async function api<T>(path:string,options?:RequestInit):Promise<T>{
 export function jsonPost<T>(path:string,data:unknown){return api<T>(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})}
 export function artifact(job:string,variant:string,file:string){return `/api/jobs/${job}/artifacts/${variant}/${encodeURIComponent(file)}`}
 
-export type ProviderConfig={provider:'custom'|'openrouter';base_url:string;model:string;vision_enabled:boolean;vision_model:string;json_mode:boolean;competition_mode:boolean;model_license:string;model_parameters_b:number;model_card:string;vision_license:string;vision_parameters_b:number;vision_card:string};
+export type ProviderConfig={provider:'custom'|'openrouter';base_url:string;model:string;vision_enabled:boolean;vision_model:string;json_mode:boolean;disable_reasoning:boolean;competition_mode:boolean;model_license:string;model_parameters_b:number;model_card:string;vision_license:string;vision_parameters_b:number;vision_card:string};
 export type ProviderState=ProviderConfig&{revision:string;has_key:boolean;ready:boolean;issues:string[]};
+export type ProviderBalance={available:boolean;reason?:string;balance?:number|null;total_credits?:number|null;key_limit_remaining?:number|null;key_usage_daily?:number|null};
 export type ProviderTest={ok:boolean;message:string;model?:string;vision?:'disabled'|'passed';seconds?:number;usage?:Record<string,unknown>};
 
 export type Inference={calls:{stage:string;model?:string;status:string;usage:Record<string,number>|null}[];audit:{status:string;coverage:{variant:string;slide:number}[];total_slides?:number;error?:string};repair:{status:string;changed_slides?:{variant:string;slide:number}[]};provider:string|null;competition_mode:boolean|null};

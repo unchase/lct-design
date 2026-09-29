@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish the default branch image (production approval applies)
+        description: Publish the default branch image to the registry
         required: true
         default: false
         type: boolean
@@ -19,10 +19,24 @@ concurrency:
   group: forma-ci-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  # Git Bash on the Windows runner must not rewrite container paths such as /data.
+  MSYS_NO_PATHCONV: '1'
+  PYTHONUTF8: '1'
+
 jobs:
   verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Operator-managed Windows runner with Docker (Linux containers) and Git Bash.
+    # Pull requests from forks never reach it; only same-repository branches run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, "${{ vars.FORMA_RUNNER_LABEL || 'forma-builder' }}"]
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI_IMAGE: forma:ci-${{ github.run_id }}-${{ github.run_attempt }}
+      CI_CONTAINER: forma-ci-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,63 +44,62 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: requirements.lock
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
       - name: Install Python dependencies
         run: |
-          python -m pip install -r requirements.lock
-          python -m pip install --no-deps -e .
-          python -m pip install 'pytest>=8,<10'
+          python -m venv .venv-ci
+          .venv-ci/Scripts/python -m pip install --quiet -r requirements.lock
+          .venv-ci/Scripts/python -m pip install --quiet --no-deps -e .
+          .venv-ci/Scripts/python -m pip install --quiet 'pytest>=8,<10'
       - name: Python tests
         env:
           LCT_RENDERER: none
-        run: python -m pytest -q
+        run: .venv-ci/Scripts/python -m pytest -q
       - name: Build frontend
         working-directory: frontend
         run: |
           npm ci
           npm run build
       - name: Build container
-        run: docker build --tag forma:ci .
+        run: docker build --tag "$CI_IMAGE" .
       - name: Start test service
         run: |
-          docker run --detach --name forma-ci --publish 127.0.0.1:8012:8000 --cap-drop ALL --security-opt no-new-privileges forma:ci
+          docker run --detach --name "$CI_CONTAINER" --publish 127.0.0.1::8000 --cap-drop ALL --security-opt no-new-privileges "$CI_IMAGE"
+          port=$(docker port "$CI_CONTAINER" 8000/tcp | head -n1 | sed 's/.*://')
+          echo "LCT_TEST_URL=http://127.0.0.1:$port" >> "$GITHUB_ENV"
           for attempt in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:8012/api/health > /dev/null; then exit 0; fi
+            if curl --fail --silent "http://127.0.0.1:$port/api/health" > /dev/null; then exit 0; fi
             sleep 2
           done
-          docker logs forma-ci
+          docker logs "$CI_CONTAINER"
           exit 1
       - name: Install browser
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
       - name: Browser checks
         working-directory: frontend
-        env:
-          LCT_TEST_URL: http://127.0.0.1:8012
         # The upload/generation scenario requires a user-owned PPTX and is skipped
         # when LCT_TEST_TEMPLATE is absent; no private templates enter this build.
         run: npx playwright test
       - name: Container logs on failure
         if: failure()
-        run: docker logs forma-ci || true
-      - name: Stop test service
+        run: docker logs "$CI_CONTAINER" || true
+      - name: Remove test service
         if: always()
-        run: docker rm --force forma-ci || true
+        run: |
+          docker rm --force "$CI_CONTAINER" > /dev/null 2>&1 || true
+          docker image rm "$CI_IMAGE" > /dev/null 2>&1 || true
 
   publish:
     needs: verify
+    # Every push to the default branch publishes unless LCT_AUTO_PUBLISH is 'false';
+    # a manual run publishes only when requested.
     if: >-
       github.ref_name == github.event.repository.default_branch &&
       ((github.event_name == 'workflow_dispatch' && inputs.publish) ||
-       (github.event_name == 'push' && vars.LCT_AUTO_PUBLISH == 'true'))
-    # Reuse an operator-managed Windows Docker builder.
-    # Never run untrusted pull-request code on this runner.
+       (github.event_name == 'push' && vars.LCT_AUTO_PUBLISH != 'false'))
     runs-on: [self-hosted, "${{ vars.FORMA_RUNNER_LABEL || 'forma-builder' }}"]
     environment: production
     timeout-minutes: 40

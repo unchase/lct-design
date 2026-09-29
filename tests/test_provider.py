@@ -51,3 +51,37 @@ def test_environment_openrouter_preset_is_labelled_and_waits_for_key(monkeypatch
     monkeypatch.setenv('LCT_API_BASE','https://openrouter.ai/api/v1');monkeypatch.setenv('LCT_MODEL','qwen/qwen3.8-27b');monkeypatch.delenv('LCT_API_KEY',raising=False)
     cfg=load_provider(tmp_path)
     assert cfg.provider=='openrouter' and any('ключ' in e.lower() for e in eligibility(cfg))
+
+def test_reasoning_is_disabled_per_provider_dialect_and_exhaustion_is_explained(monkeypatch):
+    import httpx,json as j,pytest
+    from lct_design import provider
+    from lct_design.provider import ProviderConfig,completion
+    sent=[]
+    def reply(r):
+        sent.append(j.loads(r.content))
+        return httpx.Response(200,json={'choices':[{'message':{'content':'{"ok":true}'}}]})
+    monkeypatch.setattr(provider,'TRANSPORT',httpx.MockTransport(reply))
+    completion(ProviderConfig(base_url='https://openrouter.ai/api/v1',model='m',api_key='k'),'s',{})
+    completion(ProviderConfig(base_url='http://localhost:8000/v1',model='m'),'s',{})
+    completion(ProviderConfig(base_url='http://localhost:8000/v1',model='m',disable_reasoning=False),'s',{})
+    assert sent[0]['reasoning']=={'enabled':False} and 'chat_template_kwargs' not in sent[0]
+    assert sent[1]['chat_template_kwargs']=={'enable_thinking':False} and 'reasoning' not in sent[1]
+    assert 'reasoning' not in sent[2] and 'chat_template_kwargs' not in sent[2]
+    monkeypatch.setattr(provider,'TRANSPORT',httpx.MockTransport(lambda r:httpx.Response(200,json={'choices':[{'finish_reason':'length','message':{'content':'','reasoning':'long thoughts'}}]})))
+    with pytest.raises(ValueError,match='рассужден'):
+        completion(ProviderConfig(base_url='http://localhost:8000/v1',model='m',disable_reasoning=False),'s',{})
+
+def test_openrouter_balance_combines_account_and_key_limits(tmp_path,monkeypatch):
+    import httpx
+    from lct_design import provider
+    def reply(r):
+        if r.url.path.endswith('/credits'):return httpx.Response(200,json={'data':{'total_credits':200,'total_usage':171.33}})
+        return httpx.Response(200,json={'data':{'limit':50,'limit_remaining':12.5,'usage':37.5,'usage_daily':0.09}})
+    monkeypatch.setattr(provider,'TRANSPORT',httpx.MockTransport(reply))
+    with TestClient(create_app(tmp_path,start_worker=False)) as c:
+        c.put('/api/provider',json={'base_url':'https://example.org/v1','model':'m','competition_mode':False})
+        assert c.get('/api/provider/balance').json()=={'available':False,'reason':'Баланс доступен только для OpenRouter'}
+        c.put('/api/provider',json={'provider':'openrouter','base_url':'https://openrouter.ai/api/v1','model':'m','competition_mode':False,'api_key':'sk-secret'})
+        b=c.get('/api/provider/balance').json()
+        assert b=={'available':True,'balance':28.67,'total_credits':200.0,'key_limit_remaining':12.5,'key_usage_daily':0.09}
+        assert 'sk-secret' not in c.get('/api/provider/balance').text

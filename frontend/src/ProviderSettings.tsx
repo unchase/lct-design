@@ -1,19 +1,22 @@
 import {useEffect, useState} from 'react';
-import {ArrowLeft, CheckCircle2, AlertCircle, LoaderCircle, Settings2} from 'lucide-react';
-import {api, ProviderConfig, ProviderState, ProviderTest} from './api';
+import {ArrowLeft, CheckCircle2, AlertCircle, LoaderCircle, RefreshCw, Settings2} from 'lucide-react';
+import {api, ProviderBalance, ProviderConfig, ProviderState, ProviderTest} from './api';
 
-const blank:ProviderConfig={provider:'custom',base_url:'',model:'',vision_enabled:false,vision_model:'',json_mode:true,competition_mode:true,model_license:'',model_parameters_b:0,model_card:'',vision_license:'',vision_parameters_b:0,vision_card:''};
+const blank:ProviderConfig={provider:'custom',base_url:'',model:'',vision_enabled:false,vision_model:'',json_mode:true,disable_reasoning:true,competition_mode:true,model_license:'',model_parameters_b:0,model_card:'',vision_license:'',vision_parameters_b:0,vision_card:''};
 function editable(p:ProviderState):ProviderConfig{return Object.fromEntries(Object.keys(blank).map(k=>[k,p[k as keyof ProviderConfig]])) as ProviderConfig}
+function money(v:number|null|undefined){return v==null?'—':'$'+v.toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})}
+
 export default function ProviderSettings({onClose,onSaved}:{onClose:()=>void;onSaved:(p:ProviderState)=>void}){
  const [saved,setSaved]=useState<ProviderState|null>(null),[draft,setDraft]=useState<ProviderConfig>(blank);
  const [key,setKey]=useState(''),[clearKey,setClearKey]=useState(false),[loading,setLoading]=useState(true),[busy,setBusy]=useState('');
- const [error,setError]=useState(''),[notice,setNotice]=useState(''),[models,setModels]=useState<{id:string}[]>([]),[catalogNote,setCatalogNote]=useState(''),[test,setTest]=useState<ProviderTest|null>(null);
+ const [error,setError]=useState(''),[notice,setNotice]=useState(''),[models,setModels]=useState<{id:string}[]>([]),[catalogNote,setCatalogNote]=useState(''),[test,setTest]=useState<ProviderTest|null>(null),[balance,setBalance]=useState<ProviderBalance|null>(null);
  const dirty=!!saved&&(JSON.stringify(draft)!==JSON.stringify(editable(saved))||!!key||clearKey);
  const endpointChanged=!!saved&&draft.base_url.trim().replace(/\/+$/,'')!==saved.base_url;
- async function load(){setLoading(true);setError('');try{const p=await api<ProviderState>('/provider');setSaved(p);setDraft(editable(p));onSaved(p)}catch{setError('Не удалось загрузить настройки. Повторите загрузку.')}finally{setLoading(false)}}
+ async function refreshBalance(p:ProviderState|null=saved){if(!p||p.provider!=='openrouter'||!p.has_key){setBalance(null);return}setBusy(b=>b||'balance');try{setBalance(await api<ProviderBalance>('/provider/balance'))}catch{setBalance({available:false,reason:'Баланс недоступен. Повторите позже.'})}finally{setBusy(b=>b==='balance'?'':b)}}
+ async function load(){setLoading(true);setError('');try{const p=await api<ProviderState>('/provider');setSaved(p);setDraft(editable(p));onSaved(p);void refreshBalance(p)}catch{setError('Не удалось загрузить настройки. Повторите загрузку.')}finally{setLoading(false)}}
  useEffect(()=>{void load()},[]);
  function change(values:Partial<ProviderConfig>){setDraft(d=>({...d,...values}));setTest(null);setNotice('Есть несохранённые изменения. Проверка станет доступна после сохранения.');setError('');if('base_url' in values||'provider' in values){setModels([]);setCatalogNote('')}}
- function receive(p:ProviderState){setSaved(p);setDraft(editable(p));setKey('');setClearKey(false);setTest(null);onSaved(p)}
+ function receive(p:ProviderState){setSaved(p);setDraft(editable(p));setKey('');setClearKey(false);setTest(null);onSaved(p);void refreshBalance(p)}
  async function save(e:React.FormEvent){e.preventDefault();setBusy('save');setError('');try{const p=await api<ProviderState>('/provider',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...draft,api_key:key,clear_key:clearKey})});receive(p);setNotice('Настройки сохранены. Соединение ещё не проверено.')}catch{setError('Не удалось сохранить настройки. Проверьте адрес и доступность сервиса. Введённые данные остались в форме.')}finally{setBusy('')}}
  async function catalog(){setBusy('catalog');setCatalogNote('');try{const r=await api<{models:{id:string}[]}>('/provider/models');setModels(r.models);setCatalogNote(r.models.length?`Доступно моделей: ${r.models.length}. Выберите ID в поле ниже или введите его вручную.`:'Каталог пуст. Введите ID модели вручную.')}catch{setCatalogNote('Каталог недоступен. Введите ID модели вручную — это не мешает подключению.')}finally{setBusy('')}}
  async function probe(){setBusy('test');setError('');setTest(null);try{setTest(await api<ProviderTest>('/provider/test',{method:'POST'}));setNotice('')}catch{setError('Проверка не выполнена. Проверьте сохранённый адрес, ключ и ID модели, затем повторите попытку.')}finally{setBusy('')}}
@@ -37,6 +40,7 @@ export default function ProviderSettings({onClose,onSaved}:{onClose:()=>void;onS
      <div className="model-field"><label className="field">ID текстовой модели<input list="provider-models" value={draft.model} maxLength={200} onChange={e=>change({model:e.target.value})} placeholder="Введите ID или выберите из каталога"/></label><button type="button" className="secondary" disabled={dirty||!saved.base_url} onClick={catalog}>{busy==='catalog'?<LoaderCircle size={16} className="spin"/>:null}Загрузить каталог</button></div>
      <datalist id="provider-models">{models.map(m=><option key={m.id} value={m.id}/>)}</datalist>{catalogNote&&<p className="field-note" role="status">{catalogNote}</p>}
      <label className="provider-toggle"><input type="checkbox" checked={draft.json_mode} onChange={e=>change({json_mode:e.target.checked})}/><span>Запрашивать JSON-ответ<small>Отключите, если сервис не поддерживает response_format.</small></span></label>
+     <label className="provider-toggle"><input type="checkbox" checked={draft.disable_reasoning} onChange={e=>change({disable_reasoning:e.target.checked})}/><span>Отключить рассуждения модели<small>Быстрее и укладывается в лимит 5 минут. Для Qwen3 без этого ответ может не успеть сформироваться.</small></span></label>
     </fieldset>
     <fieldset disabled={!!busy}><legend>Проверка изображений слайдов</legend><label className="provider-toggle"><input type="checkbox" checked={draft.vision_enabled} onChange={e=>change({vision_enabled:e.target.checked})}/><span>Подключить визуальную модель<small>Отправляет изображения слайдов для проверки оформления. Дополнительные запросы могут тарифицироваться.</small></span></label>
      {draft.vision_enabled?<><label className="field">ID визуальной модели<input list="provider-models" value={draft.vision_model} maxLength={200} onChange={e=>change({vision_model:e.target.value})} placeholder="ID модели с поддержкой изображений"/></label><p className="field-note">Используется тот же сервис и ключ. Проверьте поддержку изображений у выбранной модели.</p></>:<p className="field-note">Без визуальной модели проверка изображений будет отмечена как невыполненная.</p>}
@@ -56,6 +60,8 @@ export default function ProviderSettings({onClose,onSaved}:{onClose:()=>void;onS
     {dirty&&<p className="field-note">Сначала сохраните изменения.</p>}
     {test&&<div className={'provider-feedback '+(test.ok?'success':'failure')} role="status"><strong>{test.ok?'Соединение проверено':'Соединение не прошло проверку'}</strong><p>{test.message}</p>{test.model&&<p>Модель: {test.model}</p>}{test.seconds!==undefined&&<p>Время ответа: {test.seconds} с</p>}{test.vision&&<p>{test.vision==='passed'?'Приём изображения проверен.':'Визуальная проверка отключена.'}</p>}</div>}
     <p className="field-note">Успешный ответ не оценивает качество готовой презентации и не подтверждает лицензию модели.</p>
+    {saved.provider==='openrouter'&&saved.has_key&&<div className="provider-balance"><div className="provider-balance-head"><h3>Баланс OpenRouter</h3><button type="button" className="icon-text-button" disabled={!!busy} onClick={()=>void refreshBalance()} aria-label="Обновить баланс">{busy==='balance'?<LoaderCircle size={14} className="spin"/>:<RefreshCw size={14}/>}</button></div>
+     {!balance?<p>Загрузка…</p>:!balance.available?<p className="failure">{balance.reason}</p>:<><p className="provider-balance-value">{money(balance.balance)}</p><p>Доступно на аккаунте{balance.total_credits!=null?` из пополненных ${money(balance.total_credits)}`:''}.</p>{balance.key_limit_remaining!=null&&<p>Лимит этого ключа: осталось {money(balance.key_limit_remaining)}.</p>}{balance.key_usage_daily!=null&&<p>Потрачено ключом сегодня: {money(balance.key_usage_daily)}.</p>}</>}</div>}
     <div className="provider-reset"><h3>Отключить сервис</h3><p>Удалит адрес, настройки моделей и сохранённый ключ. Презентации останутся в истории.</p><button type="button" className="text-button danger-text" disabled={!!busy} onClick={reset}>Удалить подключение и ключ</button></div>
    </aside>
   </form></>}

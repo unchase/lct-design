@@ -12,6 +12,8 @@ from .deadline import BudgetExpired
 
 TRANSPORT=None  # Injected only by transport tests.
 
+class ReasoningExhausted(Exception):pass
+
 class ProviderConfig(BaseModel):
     model_config=ConfigDict(extra='forbid')
     provider:Literal['custom','openrouter']='custom'
@@ -21,6 +23,7 @@ class ProviderConfig(BaseModel):
     vision_enabled:bool=False
     vision_model:str=Field(default='',max_length=200)
     json_mode:bool=True
+    disable_reasoning:bool=True  # Qwen3-class models otherwise spend the token budget thinking.
     competition_mode:bool=True
     model_license:str=''
     model_parameters_b:float=Field(default=0,ge=0,le=10000,allow_inf_nan=False)
@@ -71,7 +74,8 @@ def load_provider(root=None):
         model_license=os.getenv('LCT_MODEL_LICENSE',''),model_parameters_b=float(os.getenv('LCT_MODEL_PARAMETERS_B','0') or '0'),
         model_card=os.getenv('LCT_MODEL_CARD',''),competition_mode=os.getenv('LCT_COMPETITION_MODE','true').lower()!='false',
         vision_enabled=os.getenv('LCT_VISION_ENABLED','false').lower()=='true',vision_model=os.getenv('LCT_VISION_MODEL',''),
-        vision_license=os.getenv('LCT_VISION_LICENSE',''),vision_parameters_b=float(os.getenv('LCT_VISION_PARAMETERS_B','0') or '0'),vision_card=os.getenv('LCT_VISION_CARD',''))
+        vision_license=os.getenv('LCT_VISION_LICENSE',''),vision_parameters_b=float(os.getenv('LCT_VISION_PARAMETERS_B','0') or '0'),vision_card=os.getenv('LCT_VISION_CARD',''),
+        disable_reasoning=os.getenv('LCT_DISABLE_REASONING','true').lower()!='false')
     cfg.revision='env-'+hashlib.sha256(json.dumps(private_data(cfg),sort_keys=True).encode()).hexdigest()[:20]
     return cfg
 
@@ -110,7 +114,7 @@ async def _request(cfg,path,body,timeout):
                     try:return json.loads(raw)
                     except ValueError:raise ValueError('Inference API вернул не JSON') from None
     except (TimeoutError,httpx.TimeoutException):raise BudgetExpired('Истекло время ожидания inference API') from None
-    except httpx.RequestError:raise ValueError('Inference API недоступен. Проверьте адрес и сетевое соединение.') from None
+    except httpx.RequestError as exc:raise ValueError(f'Inference API недоступен ({type(exc).__name__}). Проверьте адрес и сетевое соединение.') from None
 
 def request(cfg,path,body=None,timeout=75,deadline=None):
     if not cfg.base_url:raise ValueError('Не задан Base URL')
@@ -125,14 +129,20 @@ def completion(cfg,system,payload,max_tokens=6000,vision=None,deadline=None,visi
     body={'model':model,'messages':[{'role':'system','content':system},{'role':'user','content':content}],
         'temperature':.2,'max_tokens':max_tokens}
     if cfg.json_mode:body['response_format']={'type':'json_object'}
+    if cfg.disable_reasoning:
+        if is_openrouter(cfg.base_url):body['reasoning']={'enabled':False}
+        else:body['chat_template_kwargs']={'enable_thinking':False}  # vLLM/SGLang dialect
     result=request(cfg,'/chat/completions',body,timeout=cap,deadline=deadline)
     try:
-        raw=result['choices'][0]['message']['content']
+        choice=result['choices'][0];raw=choice['message']['content']
+        if not (raw or '').strip() and (choice['message'].get('reasoning') or choice.get('finish_reason')=='length'):
+            raise ReasoningExhausted()
         import re
         data=json.loads(re.sub(r'^```(?:json)?\s*|\s*```$','',raw.strip()))
         if not isinstance(data,dict):raise ValueError()
         usage={k:v for k,v in result.get('usage',{}).items() if isinstance(v,(int,float)) and k in ('prompt_tokens','completion_tokens','total_tokens','cost')}
         return data,usage,model
+    except ReasoningExhausted:raise ValueError('Модель израсходовала лимит токенов на рассуждения и не дала ответа; включите «Отключить рассуждения модели»') from None
     except (KeyError,IndexError,TypeError,ValueError,AttributeError):raise ValueError('Модель вернула ответ вне JSON-контракта; проверьте поддержку JSON и лимит токенов') from None
 
 def install_routes(app,root):
@@ -158,6 +168,18 @@ def install_routes(app,root):
             result=request(load_provider(root),'/models',timeout=15)
             return {'models':[{'id':str(m['id'])[:200]} for m in result.get('data',[])[:1000] if isinstance(m,dict) and isinstance(m.get('id'),str)]}
         except (ValueError,BudgetExpired):raise HTTPException(400,'Список моделей недоступен. ID можно указать вручную.') from None
+    @app.get('/api/provider/balance')
+    def balance():
+        cfg=load_provider(root)
+        if not is_openrouter(cfg.base_url):return {'available':False,'reason':'Баланс доступен только для OpenRouter'}
+        if not cfg.api_key.get_secret_value():return {'available':False,'reason':'Сохраните ключ OpenRouter'}
+        try:
+            credits=request(cfg,'/credits',timeout=15).get('data',{});key=request(cfg,'/key',timeout=15).get('data',{})
+            number=lambda v:round(float(v),2) if isinstance(v,(int,float)) and not isinstance(v,bool) else None
+            total,used=number(credits.get('total_credits')),number(credits.get('total_usage'))
+            return {'available':True,'balance':round(total-used,2) if total is not None and used is not None else None,'total_credits':total,
+                'key_limit_remaining':number(key.get('limit_remaining')),'key_usage_daily':number(key.get('usage_daily'))}
+        except (ValueError,BudgetExpired,AttributeError) as exc:return {'available':False,'reason':str(exc) if isinstance(exc,(ValueError,BudgetExpired)) else 'Неожиданный ответ OpenRouter'}
     @app.post('/api/provider/test')
     def test_connection():
         cfg=load_provider(root);issues=eligibility(cfg)

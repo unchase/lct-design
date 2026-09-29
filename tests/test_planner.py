@@ -27,7 +27,8 @@ def test_live_plan_selects_patterns_and_export_uses_slots(template,tmp_path,monk
         assert manifest['slides'][0]['objects'][1]['box']==p.patterns[0].slots[1].box.model_dump()
 
 @pytest.mark.parametrize('choice',[{'pattern_id':'invented','body_slot_ids':['3']},{'pattern_id':'p1','body_slot_ids':['2']},{'pattern_id':'p1','body_slot_ids':['3','3']}])
-def test_live_rejects_unknown_pattern_or_invalid_body_slot(template,monkeypatch,choice):
-    monkeypatch.setattr('lct_design.planner.infer_json',lambda *a,**kw:({'slides':[{'source_ids':['a'],'layouts':{v:choice for v in ('sequential','comparison','focus')}}]}, {},'test'))
-    with pytest.raises(ValueError,match='layout|slot|pattern'):
-        plan_content(ContentPackage(title='x',sections=[Section(id='a',title='A',bullets=['fact'])]),analyze_template(template),1,'live')
+def test_live_rejected_layout_falls_back_per_variant_without_failing_deck(template,monkeypatch,choice):
+    monkeypatch.setattr('lct_design.planner.infer_json',lambda *a,**kw:({'slides':[{'source_ids':['a'],'layouts':{'sequential':{'pattern_id':'p1','body_slot_ids':['3']},'comparison':choice,'focus':choice}}]}, {},'test'))
+    plan=plan_content(ContentPackage(title='x',sections=[Section(id='a',title='A',bullets=['fact'])]),analyze_template(template),1,'live')
+    assert set(plan.slides[0].layouts)=={'sequential'}
+    assert sum('детерминированный выбор' in w for w in plan.warnings)==2
