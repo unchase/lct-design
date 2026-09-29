@@ -56,7 +56,7 @@ def audit_deck(manifest,render,profile=None,render_dir=None):
                 if any(len(line.split())>15 for line in lines): add('density.words','Пункт длиннее 15 слов',n,o)
             if o.get('color'):
                 ratio=contrast(o['color'],slide.get('background','FFFFFF'))
-                if ratio<4.5: add('style.contrast','Контраст к заливке ниже 4.5:1; фон под объектом требует визуальной проверки',n,o,kind='heuristic',evidence={'ratio':round(ratio,2)})
+                if ratio<4.5: add('style.contrast','Контраст к заливке ниже 4.5:1; фон под объектом требует визуальной проверки',n,o,kind='heuristic',repair='recolor',evidence={'ratio':round(ratio,2)})
             if profile and o.get('font') and o['font'] not in profile.fonts: add('style.font','Шрифт отсутствует в извлечённой типографике',n,o)
         for o in objects:
             if o.get('role')=='title':continue
@@ -64,9 +64,9 @@ def audit_deck(manifest,render,profile=None,render_dir=None):
             for art in slide.get('artwork',[]):
                 iw=min(b['x']+b['w'],art['x']+art['w'])-max(b['x'],art['x']);ih=min(b['y']+b['h'],art['y']+art['h'])-max(b['y'],art['y'])
                 if iw>0 and ih>0 and iw*ih>b['w']*b['h']*(.1 if o.get('role') in ('table','chart','image','smartart') else .25):
-                    add('layout.artwork','Содержимое перекрывается с изображением шаблона',n,o,'error',evidence={'artwork':art});break
+                    add('layout.artwork','Содержимое перекрывается с изображением шаблона',n,o,'error',repair='relayout',evidence={'artwork':art});break
         if slide.get('frames') and not slide.get('frames_filled'):
-            add('layout.empty_frame','Рамка шаблона под изображение осталась пустой',n,severity='warning',evidence={'frames':len(slide['frames'])})
+            add('layout.empty_frame','Рамка шаблона под изображение осталась пустой',n,severity='warning',repair='relayout',evidence={'frames':len(slide['frames'])})
         from .layout import estimate_lines
         used=0
         for o in objects:
@@ -75,12 +75,12 @@ def audit_deck(manifest,render,profile=None,render_dir=None):
             if o.get('role') in ('table','chart','image','smartart'):used+=b['w']*b['h']
             elif o.get('text'):used+=min(b['h'],estimate_lines(o['text'],o.get('size',18),max(1,b['w']-100000))*o.get('size',18)*1.18*12700)*b['w']
         fill=used/(w*h)
-        if n>1 and fill<.25:add('density.fill','Слайд заполнен меньше чем на четверть',n,severity='warning',kind='heuristic',evidence={'fill':round(fill,3)})
-        elif fill>.75:add('density.fill','Слайд заполнен больше чем на три четверти',n,severity='warning',kind='heuristic',evidence={'fill':round(fill,3)})
+        if n>1 and fill<.25:add('density.fill','Слайд заполнен меньше чем на четверть',n,severity='warning',kind='heuristic',repair='relayout',evidence={'fill':round(fill,3)})
+        elif fill>.75:add('density.fill','Слайд заполнен больше чем на три четверти',n,severity='warning',kind='heuristic',repair='relayout',evidence={'fill':round(fill,3)})
         for a,b in combinations(objects,2):
             aa,bb=a['box'],b['box'];iw=min(aa['x']+aa['w'],bb['x']+bb['w'])-max(aa['x'],bb['x']);ih=min(aa['y']+aa['h'],bb['y']+bb['h'])-max(aa['y'],bb['y'])
             if iw>0 and ih>0 and iw*ih>min(aa['w']*aa['h'],bb['w']*bb['h'])*.03:
-                add('layout.overlap','Пересекаются два содержательных блока',n,a,'error',evidence={'other_object':b['id']})
+                add('layout.overlap','Пересекаются два содержательных блока',n,a,'error',repair='relayout',evidence={'other_object':b['id']})
     if render_dir and profile:
         file=Path(render_dir)/'fonts.txt'
         if file.exists():

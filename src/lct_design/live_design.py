@@ -75,7 +75,7 @@ def apply_audit(result,audit):
         variant['findings']=[f for f in variant['findings'] if f['rule']!='content.semantic']
         for i,f in enumerate(audit['findings']):
             if f['variant']==variant['name']:
-                variant['findings'].append(Finding(id=f'context-{i}',rule='content.semantic',kind='contextual',status='warning',severity='warning',slide=f['slide'],message=f['message'],evidence={'model':audit['model']}).model_dump())
+                variant['findings'].append(Finding(id=f'context-{i}',rule='content.semantic',kind='contextual',status='warning',severity='warning',slide=f['slide'],repair='relayout',message=f['message'],evidence={'model':audit['model']}).model_dump())
         variant['findings'].append(Finding(id='context-ran',rule='content.semantic',kind='contextual',status='passed' if len(covered)==len(variant['slides']) else 'not_run',severity='info',
             message=f'VLM проверила {len(covered)} из {len(variant["slides"])} слайдов; выводы модели требуют оценки',evidence={'covered_slides':covered,'model':audit['model']}).model_dump())
 

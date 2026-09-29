@@ -32,6 +32,10 @@ def visual_accent(colors,background):
     except (StopIteration,ValueError):
         return max(brand+['3366AA','FFFFFF','111111'],key=lambda c:contrast(c,background))
 
+def readable_color(colors,background):
+    from .audit import contrast
+    return max(colors,key=lambda c:contrast(c,background) if len(c)==6 else 0)
+
 def generate_deck(template,profile,plan,variant,output,repairs=None):
     if variant not in ('sequential','comparison','focus'): raise ValueError('Unknown variant')
     parts=read_package(template);pres=parse_xml(parts['ppt/presentation.xml']);types=parse_xml(parts['[Content_Types].xml'])
@@ -61,13 +65,18 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
     from collections import Counter
     from .layout import pattern_limit
     usage=Counter();limit=pattern_limit(len(plan.slides))
+    avoid={}
+    for r in repairs or []:
+        parts_=r.split(':')
+        if len(parts_)==3 and parts_[1]=='relayout':avoid.setdefault(int(parts_[0]),set()).add(parts_[2])
     for index,slide in enumerate(plan.slides):
         choice=slide.layouts.get(variant)
+        if index+1 in avoid:choice=None  # user asked for another composition
         if choice:
             from .planner import validate_layouts
             validate_layouts({variant:choice.model_dump()},profile,[variant],bool(slide.chart or slide.table or slide.diagram or slide.image))
             pattern=next(p for p in profile.patterns if p.id==choice.pattern_id)
-        else:pattern=select_pattern(profile,slide,variant,index,visual_regions,usage,limit)
+        else:pattern=select_pattern(profile,slide,variant,index,visual_regions,usage,limit,avoid.get(index+1))
         usage[pattern.id]+=1
         tree=parse_xml(parts[pattern.part]);spTree=tree.find('p:cSld/p:spTree',NS)
         newpart=f'ppt/slides/slide{index+10000}.xml';source_rels=relationships(parts,pattern.part)
@@ -98,9 +107,11 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
             size,overflow=fit_text(text,box,size,profile.font_sizes)
             if repairs and f'{index+1}:{role}' in repairs:
                 size,overflow=fit_text(text,box,max(12,size*.82),list(range(12,int(size)+1)))
-            spTree.append(text_shape(idbase,box,text,title.font if role=='title' else base.font,size,title.color if role=='title' else base.color,bold))
+            color=title.color if role=='title' else base.color
+            if repairs and f'{index+1}:recolor:{role}' in repairs:color=readable_color(profile.colors+['FFFFFF','111111'],pattern.background)
+            spTree.append(text_shape(idbase,box,text,title.font if role=='title' else base.font,size,color,bold))
             objects.append({'id':str(idbase),'role':role,'box':box.model_dump(),'text':text,'font':title.font if role=='title' else base.font,
-                'size':size,'color':title.color if role=='title' else base.color,'overflow':overflow});idbase+=1
+                'size':size,'color':color,'overflow':overflow});idbase+=1
         text(slide.title,title.box,title.size,'title',True)
         visual=bool(slide.chart or slide.table or slide.diagram or slide.image);boxes=body_boxes(pattern,profile,variant,visual)
         if choice:

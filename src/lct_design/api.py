@@ -110,12 +110,15 @@ def create_app(data_dir=None,start_worker=True):
         if job['status'] not in ('completed','partial'):raise HTTPException(409,'Дождитесь завершения задачи')
         variant=next((v for v in job['result']['variants'] if v['name']==request.variant),None)
         if not variant:raise HTTPException(404,'Вариант не найден')
-        selected=[f for f in variant['findings'] if f['id'] in request.finding_ids and f.get('repair')=='refit']
+        selected=[f for f in variant['findings'] if f['id'] in request.finding_ids and f.get('repair') in ('refit','relayout','recolor') and f.get('slide')]
         if not selected or len(selected)!=len(set(request.finding_ids)):raise HTTPException(422,'Выбраны недоступные исправления')
         repairs=[]
         for f in selected:
             slide=next(s for s in variant['slides'] if s['number']==f['slide'])
-            obj=next(o for o in slide['objects'] if o['id']==f['object_id']);repairs.append(f'{f["slide"]}:{obj["role"]}')
+            if f['repair']=='relayout':repairs.append(f'{f["slide"]}:relayout:{slide["pattern_id"]}');continue
+            obj=next((o for o in slide['objects'] if o['id']==f['object_id']),None)
+            if obj is None:raise HTTPException(422,'Выбраны недоступные исправления')
+            repairs.append(f'{f["slide"]}:{obj["role"]}' if f['repair']=='refit' else f'{f["slide"]}:recolor:{obj["role"]}')
         payload=dict(job['payload']);payload['request']=dict(payload['request']);payload['request']['variants']=[request.variant]
         payload.update({'parent_id':id,'repairs':sorted(set(payload.get('repairs',[]))|set(repairs)),'selected_findings':request.finding_ids})
         return store.create(payload)
