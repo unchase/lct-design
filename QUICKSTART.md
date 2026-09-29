@@ -124,10 +124,10 @@ Compose `lct-data` (имя Docker обычно содержит префикс �
 ### Что уже подготовлено в репозитории
 
 - `.github/workflows/ci.yml`: Python-тесты, сборка интерфейса, Docker-сборка,
-  запуск контейнера и браузерные проверки на GitHub-hosted runner.
-- После успешных проверок публикация образа в
-  `${REGISTRY_HOST}/inflake/forma:<полный SHA>` и `:main` на существующем
-  Windows runner с метками `self-hosted, forma-builder`.
+  запуск контейнера и браузерные проверки на собственном Windows runner с метками
+  `self-hosted, forma-builder` (Docker с Linux containers, Git Bash).
+- После успешных проверок каждый push в основную ветку публикует образ в
+  `${REGISTRY_HOST}/inflake/forma:<полный SHA>` и `:main` на том же runner.
 - `compose.production.yaml`: HTTPS через Traefik, обязательный пароль,
   постоянный том, ограничения ресурсов, проверка работоспособности.
 - GitHub публикует **только образ**. Фактическое обновление приложения выполняет
@@ -139,12 +139,11 @@ Compose `lct-data` (имя Docker обычно содержит префикс �
 
 ### Однократная настройка GitHub
 
-В репозитории создать окружение **production**, ограничить его основной веткой
-(`master` в текущем репозитории; workflow поддерживает также `main`)
-и включить обязательное подтверждение выпуска доступными средствами GitHub.
-Защиту окружения нужно настроить вручную: файл workflow её не создаёт.
+Окружение **production** GitHub создаёт при первом запуске публикации без защиты.
+При необходимости ограничьте его основной веткой (`main`) и включите обязательное
+подтверждение выпуска: файл workflow защиту не создаёт.
 
-В этом окружении добавить секреты, вводя значения непосредственно в GitHub:
+Секреты репозитория или окружения вводятся непосредственно в GitHub:
 
 | Secret | Назначение |
 |---|---|
@@ -152,22 +151,21 @@ Compose `lct-data` (имя Docker обычно содержит префикс �
 | `REGISTRY_USER` | Пользователь с правом публикации `inflake/forma` |
 | `REGISTRY_PASS` | Пароль/токен registry |
 
-Runner с меткой `forma-builder` должен быть разрешён этому репозиторию, иметь PowerShell
-и Docker с Linux containers и доступ к registry. Ни один job pull request
-не попадает на этот runner и не получает эти секреты.
+Runner с меткой `forma-builder` должен быть зарегистрирован для этого репозитория,
+иметь PowerShell, Git Bash (раньше `C:\Windows\System32` в `PATH`, иначе `bash`
+может оказаться WSL), Docker с Linux containers и доступ к registry. Pull request из
+форков на этот runner не попадают; запускаются только ветки этого репозитория.
+Регистрация: Settings → Actions → Runners → New self-hosted runner, при `config.cmd`
+указать `--labels forma-builder`; запуск — `run.cmd` из окружения с Git Bash в `PATH`.
 Метка задаётся через repository variable `FORMA_RUNNER_LABEL`; по умолчанию
 `forma-builder`. Можно добавить эту метку существующему Windows runner, сохранив
 его прежние метки и доступ других проектов. Новый сервер сборки для этого не нужен.
 
-Первый выпуск: **Actions → CI and Docker image → Run workflow → основная ветка →
-publish = true**. Проверки проходят до публикации; затем применяется защита
-окружения `production`. Workflow должен сначала попасть в основную ветку.
-
-По умолчанию push в `master`/`main` запускает проверки без публикации. Для дальнейших
-автоматических выпусков администратор может задать repository variable
-`LCT_AUTO_PUBLISH=true`; защита `production` продолжит применяться. Это
-осознанно включает замену образа после изменений в основной ветке. Публикация
-разрешена только из текущей default branch репозитория; тег образа остаётся `main`.
+По умолчанию push в основную ветку запускает проверки и после них публикацию.
+Чтобы оставить только проверки, задайте repository variable `LCT_AUTO_PUBLISH=false`;
+тогда выпуск — вручную: **Actions → CI and Docker image → Run workflow → publish = true**.
+Публикация разрешена только из текущей default branch; тег образа остаётся `main`.
+Сервер образ сам не заменяет, пока не включён Watchtower или не выполнен `docker compose pull`.
 
 ### Однократная настройка сервера Inflake
 
