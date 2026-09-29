@@ -32,6 +32,7 @@ class Pattern(Model):
     visual_features: list[float] = []
     artwork: list[Box] = []
     frames: list[Box] = []
+    schema: dict = {}
 
 class TemplateProfile(Model):
     version: str = '1.0'
@@ -62,10 +63,20 @@ class Chart(Model):
             raise ValueError('Chart values must be finite')
         return self
 
+class Item(Model):
+    """One block of a slide: a card, list row, step or metric."""
+    heading: str = Field(default='', max_length=300)
+    text: str = Field(default='', max_length=2000)
+    value: str = Field(default='', max_length=40)
+
 class Section(Model):
     id: str
     title: str = Field(min_length=1, max_length=500)
     bullets: list[str] = []
+    lead: str = Field(default='', max_length=1000)
+    items: list[Item] = Field(default_factory=list, max_length=12)
+    note: str = Field(default='', max_length=1000)
+    button: str = Field(default='', max_length=60)
     table: list[list[str]] | None = None
     chart: Chart | None = None
     diagram: list[str] | None = None
@@ -102,6 +113,8 @@ class ContentPackage(Model):
     language: str = 'ru'
     sections: list[Section] = Field(default_factory=list, max_length=50)
     synthetic: bool = False
+    speaker: str = Field(default='', max_length=200)
+    link: str = Field(default='', max_length=500)
 
     @model_validator(mode='after')
     def unique_sources(self):
@@ -114,7 +127,7 @@ class ContentPackage(Model):
 
 class LayoutChoice(Model):
     pattern_id:str
-    body_slot_ids:list[str]=Field(min_length=1,max_length=6)
+    body_slot_ids:list[str]=Field(default_factory=list,max_length=6)
 
 class PlannedSlide(Model):
     title: str
@@ -128,6 +141,10 @@ class PlannedSlide(Model):
     diagram_parents: list[int | None] | None = None
     diagram_assistant: int | None = None
     image: str | None = None
+    lead: str = ''
+    items: list[Item] = []
+    note: str = ''
+    button: str = ''
     layouts:dict[str,LayoutChoice]=Field(default_factory=dict)
 
 class DeckPlan(Model):
@@ -137,6 +154,8 @@ class DeckPlan(Model):
     model: str | None = None
     usage: dict = {}
     outline_usage: dict = {}
+    speaker: str = ''
+    link: str = ''
     warnings: list[str] = []
 
 class Finding(Model):

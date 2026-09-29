@@ -112,16 +112,18 @@ def plan_content(content:ContentPackage,profile,slide_count:int,mode:str,config=
             if title not in [s.title for s in src]:title=src[0].title
             s=src[0];layouts=lenient_layouts(item.get('layouts'),profile,variants,bool(s.chart or s.table or s.diagram or s.image),len(out)+1,warnings)
             out.append(PlannedSlide(title=title,source_ids=ids,bullets=[b for section in src for b in section.bullets],
-                table=s.table,chart=s.chart,diagram=s.diagram,diagram_kind=s.diagram_kind,diagram_parents=s.diagram_parents,diagram_assistant=s.diagram_assistant,image=s.image,layouts=layouts))
+                table=s.table,chart=s.chart,diagram=s.diagram,diagram_kind=s.diagram_kind,diagram_parents=s.diagram_parents,diagram_assistant=s.diagram_assistant,image=s.image,layouts=layouts,
+                lead=s.lead,items=[i for section in src for i in section.items],note=s.note,button=s.button))
         if set(covered)!=set(mapping) or len(covered)!=len(set(covered)) or not 1<=len(out)<=50:raise ValueError('Model plan must include each source exactly once (1–50 slides)')
         diversify(out,variants,warnings)
     else:
         out=[PlannedSlide(title=s.title,source_ids=[s.id],bullets=s.bullets,table=s.table,chart=s.chart,
-            diagram=s.diagram,diagram_kind=s.diagram_kind,diagram_parents=s.diagram_parents,diagram_assistant=s.diagram_assistant,image=s.image) for s in sections]
+            diagram=s.diagram,diagram_kind=s.diagram_kind,diagram_parents=s.diagram_parents,diagram_assistant=s.diagram_assistant,image=s.image,
+            lead=s.lead,items=s.items,note=s.note,button=s.button) for s in sections]
         warnings.append('Диагностический режим: структура собрана из исходных разделов без LLM; смысловой аудит не выполнен.')
         if not content.sections:warnings.append('Без модели бриф не превращается в содержание: каждый абзац стал слайдом. Для генерации структуры и текста по брифу выберите AI-режим.')
     if len(out)!=slide_count and not outline_usage:warnings.append(f'Запрошено {slide_count} слайдов; сохранены {len(out)} исходных разделов без выдумывания и потери данных.')
     from .speech import speaker_text
     notes={s.id:s.notes for s in sections}
     for slide in out:slide.speaker_notes='\n\n'.join(notes[i] for i in slide.source_ids if notes.get(i)) or speaker_text(slide)
-    return DeckPlan(title=content.title,slides=out,mode=mode,model=model,usage=usage,outline_usage=outline_usage,warnings=warnings)
+    return DeckPlan(title=content.title,slides=out,mode=mode,model=model,usage=usage,outline_usage=outline_usage,warnings=warnings,speaker=content.speaker,link=content.link)

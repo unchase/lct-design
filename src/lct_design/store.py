@@ -34,6 +34,8 @@ class JobStore:
             db.execute("UPDATE jobs SET status='running',stage='Подготовка',updated=? WHERE id=?",(time.time(),row['id']))
             id=row['id']
         return self.get(id)
+    def delete(self,id):
+        with self.connect() as db:db.execute('DELETE FROM jobs WHERE id=?',(id,))
     def cancel(self,id):
         with self.connect() as db:
             db.execute("UPDATE jobs SET cancelled=1,status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END WHERE id=?",(id,))

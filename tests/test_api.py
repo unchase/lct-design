@@ -39,3 +39,25 @@ def test_template_source_slide_render_is_served_for_comparison(tmp_path):
         assert c.get(f'/api/templates/{tid}/slides/3.png').content==b'\x89PNG fake'
         assert c.get(f'/api/templates/{tid}/slides/4.png').status_code==404
         assert c.get('/api/templates/..%2F..%2Fx/slides/1.png').status_code==404
+
+def test_finished_job_can_be_deleted_with_its_files_but_running_cannot(tmp_path):
+    from fastapi.testclient import TestClient
+    from lct_design.api import create_app
+    app=create_app(tmp_path,start_worker=False)
+    with TestClient(app) as c:
+        store=app.state.store
+        done=store.create({'request':{}});store.update(done['id'],status='completed')
+        folder=tmp_path/'jobs'/done['id'];folder.mkdir(parents=True);(folder/'x.txt').write_text('x')
+        busy=store.create({'request':{}})
+        assert c.delete(f'/api/jobs/{busy["id"]}').status_code==409
+        assert c.delete(f'/api/jobs/{done["id"]}').json()=={'deleted':True}
+        assert not folder.exists() and c.get(f'/api/jobs/{done["id"]}').status_code==404
+
+def test_preset_briefs_are_listed_and_loadable(tmp_path):
+    from fastapi.testclient import TestClient
+    from lct_design.api import create_app
+    with TestClient(create_app(tmp_path,start_worker=False)) as c:
+        items={i['id']:i for i in c.get('/api/examples').json()}
+        assert {'demo','medium','large','xlarge'}<=set(items) and items['xlarge']['chars']>items['medium']['chars']
+        assert c.get('/api/examples/large').json()['purpose']=='product'
+        assert c.get('/api/examples/../x').status_code==404

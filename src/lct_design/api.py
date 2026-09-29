@@ -60,6 +60,23 @@ def create_app(data_dir=None,start_worker=True):
     def health():return {'status':'ok','version':'0.2.0','live_configured':not eligibility(load_provider(root)),'renderer':os.getenv('LCT_RENDERER','docker')}
     @app.get('/api/example')
     def example():return json.loads((ROOT/'examples/content.json').read_text(encoding='utf-8'))
+    def presets():
+        items={'demo':ROOT/'examples/content.json'}
+        items.update({p.stem:p for p in sorted((ROOT/'examples/briefs').glob('*.json'))})
+        return items
+    @app.get('/api/examples')
+    def examples():
+        out=[]
+        for key,path in presets().items():
+            data=json.loads(path.read_text(encoding='utf-8'))
+            out.append({'id':key,'label':data.get('label') or 'Демо-контент с таблицами и графиком','chars':len(data.get('brief','')),'sections':len(data.get('sections',[]))})
+        # Ready content first, then briefs from short to long.
+        return sorted(out,key=lambda i:(i['sections']==0,i['chars']))
+    @app.get('/api/examples/{id}')
+    def example_by_id(id:str):
+        path=presets().get(id)
+        if path is None:raise HTTPException(404)
+        return json.loads(path.read_text(encoding='utf-8'))
     @app.get('/api/templates')
     def list_templates():
         return [json.loads(p.read_text(encoding='utf-8')) for p in (root/'templates').glob('*/meta.json')]
@@ -101,6 +118,14 @@ def create_app(data_dir=None,start_worker=True):
     def jobs():return store.list()
     @app.get('/api/jobs/{id}')
     def job(id:str):return get_job(id)
+    @app.delete('/api/jobs/{id}')
+    def delete_job(id:str):
+        job=get_job(id)
+        if job['status'] in ('running','queued'):raise HTTPException(409,'Сначала отмените генерацию')
+        store.delete(id)
+        import shutil
+        shutil.rmtree(root/'jobs'/id,ignore_errors=True)
+        return {'deleted':True}
     @app.post('/api/jobs/{id}/cancel')
     def cancel(id:str):
         get_job(id);store.cancel(id);return {'cancelled':True}
