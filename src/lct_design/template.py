@@ -8,7 +8,7 @@ from .models import Box,Slot,Pattern,TemplateProfile
 EMU=914400
 # Sample prompts inside media frames ("Вставить фото", "Insert picture") are not content.
 PROMPT=re.compile(r'вставь?(?:те|ить)?\s*(?:сюда\s*)?(?:фото|изображени|картинк|скриншот|график)|insert\s*(?:your\s*)?(?:photo|picture|image)|^\s*(?:фото|photo|image|screenshot|скриншот)\s*$')
-ANALYSIS_ALGORITHM='OOXML effective styles + geometry families + inherited artwork + media frames v6'
+ANALYSIS_ALGORITHM='OOXML effective styles + geometry families + inherited artwork + media frames + block roles v7'
 
 def linked(parts,part,kind):
     return next((dest for k,dest in relationships(parts,part).values() if k==kind and dest in parts),None)
@@ -117,6 +117,7 @@ def analyze_template(path:Path)->TemplateProfile:
             cmap=parse_xml(parts[master]).find('p:clrMap',NS)
             if cmap is not None:
                 colors.update({k:colors.get(v,'111111') for k,v in cmap.attrib.items()})
+        title_ph=set()
         for shape in tree.findall('.//p:sp',NS):
             tx=shape.find('p:txBody',NS)
             if tx is None: continue
@@ -138,6 +139,7 @@ def analyze_template(path:Path)->TemplateProfile:
             nv=shape.find('p:nvSpPr/p:cNvPr',NS)
             role='footer' if typ and typ[0] in ('ftr','dt','sldNum') else 'body'
             if text.isdigit() and box.y>height*.8: role='footer'
+            if typ and typ[0] in ('title','ctrTitle'):title_ph.add(nv.get('id'))
             slots.append(Slot(id=nv.get('id'),role=role,box=box,font=font,size=sz,color=color,text=text))
             allfonts[font]+=1;allsizes[sz]+=1;allcolors[color]+=1
         body=[s for s in slots if s.role!='footer']
@@ -149,6 +151,9 @@ def analyze_template(path:Path)->TemplateProfile:
             top=min(s.box.y for s in title_candidates)
             title_candidates=[s for s in title_candidates if s.box.y<=top+height*.04]
         title=max(title_candidates or body,key=lambda s:s.size+(1-s.box.y/height)*30-min(len(s.text),500)/100)
+        # The template's own title placeholder is authoritative when it has text.
+        declared=[s for s in body if s.id in title_ph and s.text.strip()]
+        if declared:title=max(declared,key=lambda s:s.size)
         title.role='title'
         slots.sort(key=lambda s:(s.role!='title',s.box.y,s.box.x))
         n=len(body)-1;family='cover' if n<=0 else 'split' if n in (2,3) else 'content' if n<=6 else 'dense'
@@ -170,10 +175,13 @@ def analyze_template(path:Path)->TemplateProfile:
             # Full-bleed pictures are backgrounds; smaller ones are content artwork to avoid.
             if pb and not (pb.x<=width*.03 and pb.y<=height*.03 and pb.x+pb.w>=width*.97 and pb.y+pb.h>=height*.97):artwork.append(pb)
         frames=media_frames(tree,slots,width,height)
+        from .slots import build_schema
+        blocks=build_schema(tree,slots,width,height)
+        if blocks.get('instruction'):family='guide'
         feature=[n/10,sum(s.box.w*s.box.h for s in body)/width/height,title.box.y/height,title.size/100]
         patterns.append(Pattern(id=f'p{i+1}',part=part,index=i+1,scope=master or theme or part,
             slots=slots,family=family,background=background,complexity=len(tree.findall('.//p:sp',NS))+len(tree.findall('.//p:pic',NS))*2,
-            visual_features=feature,artwork=artwork,frames=frames))
+            visual_features=feature,artwork=artwork,frames=frames,blocks=blocks))
     if not patterns: raise ValueError('No editable text slots found in the presentation')
     return TemplateProfile(hash=hashlib.sha256(Path(path).read_bytes()).hexdigest(),filename=Path(path).name,
         width=width,height=height,colors=[c for c,_ in allcolors.most_common(32)],fonts=list(allfonts),

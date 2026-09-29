@@ -37,3 +37,13 @@ def test_brief_only_live_plan_writes_requested_slides(template,monkeypatch):
     assert len(plan.slides)==10 and plan.outline_usage=={'total_tokens':5}
     assert calls[0]['purpose']=='feature' and calls[0]['slide_count']==10
     assert plan.slides[0].speaker_notes=='Пилот шёл 3 месяца.'
+
+def test_structured_items_lead_note_and_button_are_grounded():
+    data={'slides':[{'title':'Пилот подтвердил спрос','lead':'Итоги за 3 месяца','note':'Данные за 7 недель',
+        'items':[{'heading':'Компании','value':'120','text':'участвовали в пилоте'},{'heading':'Рост','value':'40%','text':'выручки'}]},
+        {'title':'Одобрите запуск','button':'Открыть план'}]}
+    sections,warnings=build_sections(data,BRIEF,2)
+    first=sections[0]
+    assert first.lead=='Итоги за 3 месяца' and first.note==''
+    assert [(i.heading,i.value) for i in first.items]==[('Компании','120'),('Рост','')] or [(i.heading,i.value) for i in first.items]==[('Компании','120')]
+    assert sections[1].button=='Открыть план'

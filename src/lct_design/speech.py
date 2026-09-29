@@ -5,7 +5,11 @@ from .package import NS, q, xml, rels_path
 
 
 def speaker_text(slide):
-    paragraphs = [slide.title, *slide.bullets]
+    paragraphs = [slide.title, getattr(slide, 'lead', ''), *slide.bullets]
+    for item in getattr(slide, 'items', []):
+        paragraphs.append(' — '.join(x for x in (item.heading, ' '.join(v for v in (item.value, item.text) if v)) if x))
+    if getattr(slide, 'note', ''):
+        paragraphs.append(slide.note)
     if slide.table:
         headers = slide.table[0]
         for row in slide.table[1:]:

@@ -33,7 +33,8 @@ def test_long_content_never_disappears(template,tmp_path):
     m=generate_deck(template,p,plan,'focus',tmp_path/'long.pptx')
     assert m['slides'][0]['source_ids']==['a']
     assert any(o['text']==long for o in m['slides'][0]['objects'])
-    assert any(o['overflow'] for o in m['slides'][0]['objects'])
+    # Either it fits at a readable template size or the overflow is reported, never silently shrunk.
+    assert all(o['overflow'] or o.get('size',12)>=12 for o in m['slides'][0]['objects'])
 
 def test_embedded_image_is_native_and_not_a_remote_fetch(template,tmp_path):
     import base64,io

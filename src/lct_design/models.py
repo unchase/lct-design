@@ -32,7 +32,7 @@ class Pattern(Model):
     visual_features: list[float] = []
     artwork: list[Box] = []
     frames: list[Box] = []
-    schema: dict = {}
+    blocks: dict = {}
 
 class TemplateProfile(Model):
     version: str = '1.0'
@@ -66,7 +66,7 @@ class Chart(Model):
 class Item(Model):
     """One block of a slide: a card, list row, step or metric."""
     heading: str = Field(default='', max_length=300)
-    text: str = Field(default='', max_length=2000)
+    text: str = Field(default='', max_length=10000)
     value: str = Field(default='', max_length=40)
 
 class Section(Model):

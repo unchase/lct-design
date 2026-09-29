@@ -1,7 +1,7 @@
 """Brief-to-content generation: the model writes structure and wording, code keeps facts grounded."""
 import re
 from pydantic import ValidationError
-from .models import Section, Chart
+from .models import Section, Chart, Item
 
 NUMBER = re.compile(r'\d+(?:[   ]\d{3})*(?:[.,]\d+)?')
 
@@ -41,6 +41,18 @@ def build_sections(data, brief, slide_count):
             if not b: continue
             if grounded(b, allowed): bullets.append(b)
             else: warnings.append(f'Слайд «{title[:60]}»: пункт с числом не из брифа удалён.')
+        def clean(value, limit):
+            text = str(value or '').strip()[:limit]
+            if text and not grounded(text, allowed):
+                warnings.append(f'Слайд «{title[:60]}»: фрагмент с числом не из брифа удалён.'); return ''
+            return text
+        lead = clean(item.get('lead'), 400); note = clean(item.get('note'), 400); button = clean(item.get('button'), 40)
+        blocks = []
+        for raw in (item.get('items') or [])[:8]:
+            if not isinstance(raw, dict): continue
+            heading, text, value = clean(raw.get('heading'), 120), clean(raw.get('text'), 600), clean(raw.get('value'), 30)
+            if value and not numbers(value): value = ''
+            if heading or text: blocks.append(Item(heading=heading, text=text, value=value))
         notes = str(item.get('notes') or '').strip()[:3000]
         if notes and not grounded(notes, allowed):
             warnings.append(f'Слайд «{title[:60]}»: текст выступления с числом не из брифа заменён пунктами слайда.'); notes = ''
@@ -62,11 +74,13 @@ def build_sections(data, brief, slide_count):
                 if 2 <= len(labels) <= 8 and all(grounded(l, allowed) for l in labels): visual['diagram'] = labels
         except (ValidationError, TypeError, ValueError):
             warnings.append(f'Слайд «{title[:60]}»: визуализация не прошла проверку и удалена.'); visual = {}
-        if not bullets and not visual:
+        if blocks: bullets = []
+        if not bullets and not blocks and not visual and not lead and not button:
             if notes: bullets = [notes.split('. ')[0][:200]]
             elif i > 1: warnings.append(f'Слайд «{title[:60]}» без содержания отброшен.'); continue
-        try: sections.append(Section(id=f'gen-{len(sections)+1}', title=title, bullets=bullets, notes=notes, **visual))
-        except ValidationError: sections.append(Section(id=f'gen-{len(sections)+1}', title=title, bullets=bullets, notes=notes))
+        extra = dict(lead=lead, items=blocks, note=note, button=button)
+        try: sections.append(Section(id=f'gen-{len(sections)+1}', title=title, bullets=bullets, notes=notes, **extra, **visual))
+        except ValidationError: sections.append(Section(id=f'gen-{len(sections)+1}', title=title, bullets=bullets, notes=notes, **extra))
     if not sections: raise ValueError('После проверки фактов не осталось слайдов содержания')
     if len(sections) != slide_count:
         warnings.append(f'Запрошено {slide_count} слайдов; после проверки фактов осталось {len(sections)}.')

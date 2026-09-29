@@ -49,6 +49,11 @@ def select_pattern(profile,slide,variant,index,visual_regions=None,usage=None,li
               any(s.role=='title' and s.box.y<profile.height*.22 for s in p.slots)]
     eligible=eligible or [p for p in profile.patterns if p.family not in ('guide','code')] or profile.patterns
     if avoid:eligible=[p for p in eligible if p.id not in avoid] or eligible
+    def structured(p):
+        b=p.blocks or {}
+        return bool(b.get('items')) or any(s['kind'] in ('metric','qr','button','note_label','speaker') for s in b.get('singles',[]))
+    plain=[p for p in eligible if not structured(p)]
+    if plain:eligible=plain
     # Small captions on pictorial/card layouts are not a free text canvas.
     # Prefer a real body region before checking image collisions.
     spacious=[p for p in eligible if any(s.role=='body' and s.box.w>=profile.width*.3 and

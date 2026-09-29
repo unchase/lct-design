@@ -69,12 +69,20 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
     for r in repairs or []:
         parts_=r.split(':')
         if len(parts_)==3 and parts_[1]=='relayout':avoid.setdefault(int(parts_[0]),set()).add(parts_[2])
+    from .slots import choose,apply_fill
     for index,slide in enumerate(plan.slides):
         choice=slide.layouts.get(variant)
         if index+1 in avoid:choice=None  # user asked for another composition
-        if choice:
+        visual=bool(slide.chart or slide.table or slide.diagram or slide.image)
+        # Preferred: a pattern whose own blocks this content fills completely, written in place.
+        picked=choose(profile,slide,plan,variant,index,usage,limit,avoid.get(index+1),choice,visual)
+        fill=None
+        if picked:
+            pattern,fill=picked
+            if choice and choice.pattern_id!=pattern.id:choice=None
+        elif choice:
             from .planner import validate_layouts
-            validate_layouts({variant:choice.model_dump()},profile,[variant],bool(slide.chart or slide.table or slide.diagram or slide.image))
+            validate_layouts({variant:choice.model_dump()},profile,[variant],visual)
             pattern=next(p for p in profile.patterns if p.id==choice.pattern_id)
         else:pattern=select_pattern(profile,slide,variant,index,visual_regions,usage,limit,avoid.get(index+1))
         usage[pattern.id]+=1
@@ -86,7 +94,7 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
         # Text and its visual container are separate. Keep the original shape, fill,
         # outline, effect, transforms and stacking order; clear only mutable text.
         # Footer/brand text and unclassified small decorative labels stay intact.
-        mutable_ids={s.id for s in pattern.slots if s.role in ('title','body')}
+        mutable_ids={s.id for s in pattern.slots if s.role in ('title','body')} if fill is None else set()
         for node in list(tree.findall('.//p:sp',NS)):
             nv=node.find('p:nvSpPr/p:cNvPr',NS);body=node.find('p:txBody',NS)
             if nv is not None and nv.get('id') in mutable_ids and body is not None:
@@ -99,7 +107,7 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
         for tag in ('timing','transition'):
             for node in tree.findall('p:'+tag,NS): tree.remove(node)
         title=next(s for s in pattern.slots if s.role=='title');base=max((s for s in pattern.slots if s.role=='body'),key=lambda s:s.box.w*s.box.h,default=title)
-        if choice:base=next(s for s in pattern.slots if s.id==choice.body_slot_ids[0])
+        if choice and choice.body_slot_ids and fill is None:base=next(s for s in pattern.slots if s.id==choice.body_slot_ids[0])
         objects=[];idbase=max([int(n.get('id','0')) for n in tree.findall('.//p:cNvPr',NS)]+[100])+10
         def text(text,box,size,role,bold=False):
             nonlocal idbase
@@ -112,14 +120,31 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
             spTree.append(text_shape(idbase,box,text,title.font if role=='title' else base.font,size,color,bold))
             objects.append({'id':str(idbase),'role':role,'box':box.model_dump(),'text':text,'font':title.font if role=='title' else base.font,
                 'size':size,'color':color,'overflow':overflow});idbase+=1
-        text(slide.title,title.box,title.size,'title',True)
-        visual=bool(slide.chart or slide.table or slide.diagram or slide.image);boxes=body_boxes(pattern,profile,variant,visual)
-        if choice:
-            boxes=[next(s.box for s in pattern.slots if s.id==sid) for sid in choice.body_slot_ids]
-            if len(boxes)==1:boxes=variant_boxes(boxes[0],profile,variant,visual,len(slide.bullets))
-        box=boxes[0];accent=visual_accent(profile.colors,pattern.background)
-        media=max(pattern.frames,key=lambda b:b.w*b.h) if visual and pattern.frames else None
-        if media:
+        accent=visual_accent(profile.colors,pattern.background);media=None
+        if fill is not None:
+            recolor={r.split(':',2)[2]:readable_color(profile.colors+['FFFFFF','111111'],pattern.background) for r in repairs or [] if r.startswith(f'{index+1}:recolor:')}
+            placed,media_boxes,codes=apply_fill(tree,pattern,fill,profile,index,repairs,recolor)
+            objects.extend(placed)
+            for qbox,url in codes:
+                import io,segno
+                buf=io.BytesIO();segno.make(url,error='m').save(buf,kind='png',scale=12,border=2)
+                qpart=f'ppt/media/lctqr{index}.png';parts[qpart]=buf.getvalue();add_override(types,qpart,'image/png');rid=f'lctQr{index}'
+                ET.SubElement(sr,'{'+NS['rel']+'}Relationship',Id=rid,Type=NS['r']+'/image',Target='../media/'+posixpath.basename(qpart))
+                spTree.append(picture_shape(idbase,qbox,rid,'QR-код: '+url))
+                objects.append({'id':str(idbase),'role':'qr','box':qbox.model_dump(),'text':url,'overflow':False});idbase+=1
+            frame_box=max(pattern.frames,key=lambda b:b.w*b.h) if visual and pattern.frames and not media_boxes else None
+            if frame_box:media_boxes=[Box(x=frame_box.x+frame_box.w*.05,y=frame_box.y+frame_box.h*.05,w=frame_box.w*.9,h=frame_box.h*.9)]
+            media=media_boxes[0] if media_boxes else None;box=media or title.box;boxes=[box]
+        else:
+            text(slide.title,title.box,title.size,'title',True)
+            boxes=body_boxes(pattern,profile,variant,visual)
+            if choice:
+                boxes=[next(s.box for s in pattern.slots if s.id==sid) for sid in choice.body_slot_ids] or boxes
+                if len(boxes)==1:boxes=variant_boxes(boxes[0],profile,variant,visual,len(slide.bullets))
+            box=boxes[0]
+            media=max(pattern.frames,key=lambda b:b.w*b.h) if visual and pattern.frames else None
+        if fill is not None:pass
+        elif media:
             # The template reserves this panel for media: the visual fills it, text keeps its slot.
             if slide.bullets:text('\n'.join(slide.bullets),box,min(base.size,18),'caption')
             box=Box(x=media.x+media.w*.05,y=media.y+media.h*.05,w=media.w*.9,h=media.h*.9)
@@ -163,7 +188,7 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
                     b=regions[j]
                     text(label,b,min(base.size,20),f'diagram-{j}',True)
                 manifest['warnings'].append(f'Схема на слайде {index+1}: {n} узлов созданы фигурами. Native SmartArt поддерживает процесс из 4 шагов и организацию из 6 узлов фиксированной структуры.')
-        else:
+        elif fill is None:
             count=len(boxes);chunks=[slide.bullets[(len(slide.bullets)*j+count-1)//count:(len(slide.bullets)*(j+1)+count-1)//count] for j in range(count)]
             for j,(b,chunk) in enumerate(zip(boxes,chunks)):
                 if choice:base=next(s for s in pattern.slots if s.id==choice.body_slot_ids[min(j,len(choice.body_slot_ids)-1)])
@@ -182,6 +207,7 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
         ET.SubElement(ids,q('p:sldId'),{'id':str(256+index),q('r:id'):rid});add_override(types,newpart,SLIDE_CT)
         manifest['slides'].append({'number':index+1,'title':slide.title,'source_ids':slide.source_ids,'pattern_id':pattern.id,
             'layout_source':'llm' if choice else 'heuristic','body_slot_ids':choice.body_slot_ids if choice else [],
+            'layout_mode':'blocks' if fill is not None else 'overlay',
             'source_slide':pattern.index,'scope':pattern.scope,'background':pattern.background,'objects':objects,'speaker_notes':slide.speaker_notes,
             'artwork':[b.model_dump() for b in visual_regions.get(pattern.id,[])],
             'frames':[b.model_dump() for b in pattern.frames],'frames_filled':bool(media)})

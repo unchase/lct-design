@@ -7,7 +7,12 @@ Return JSON {"slides":[{"title":"exact source title","source_ids":["id"],"layout
 Include exactly the requested variants as layouts keys. Use each source ID exactly once.
 Keep chart/table/diagram/image sources on separate slides, with exactly one large body slot.
 Patterns with media_frame reserve a panel for a chart, table, image or diagram: use them only
-for such slides. Choose actual pattern IDs and only body slot IDs from that pattern. Never invent an ID,
+for such slides. Each pattern's blocks field lists what its template blocks expect, e.g. "3×[heading,text] row;
+note_label; note_text" or "metric; media" or "button; qr". Prefer a pattern whose item count
+equals the slide's number of items (or bullets) and whose single blocks (metric, qr, button,
+media, speaker) the slide can actually fill; body_slot_ids may then be an empty list, because
+the content is written into those blocks. The first slide uses a cover pattern.
+Choose actual pattern IDs and only body slot IDs from that pattern. Never invent an ID,
 geometry, style, title or fact. Do not choose intersecting slots or slots outside the slide.
 The renderer places source bullets, in their original order, evenly across selected slots;
 choose sufficient capacity for all words, readable type and complete facts. Numeric callouts

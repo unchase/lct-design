@@ -7,7 +7,7 @@ def test_repair_only_selected_and_keeps_parent(tmp_path,template,monkeypatch):
     app=create_app(tmp_path/'data',start_worker=False)
     with TestClient(app) as c:
         tid=c.post('/api/templates',files={'file':('t.pptx',template.read_bytes())}).json()['id']
-        job=c.post('/api/jobs',json={'template_id':tid,'content':{'title':'Long','sections':[{'id':'x','title':'One','bullets':['Long words '*300]},{'id':'y','title':'Two','bullets':['More words '*300]}]},'variants':['sequential']}).json()
+        job=c.post('/api/jobs',json={'template_id':tid,'content':{'title':'Long','sections':[{'id':'x','title':'One','bullets':['Long words '*800]},{'id':'y','title':'Two','bullets':['More words '*800]}]},'variants':['sequential']}).json()
         result=run_job(app.state.store,job);original=(app.state.store.root/'jobs'/job['id']/'sequential/presentation.pptx').read_bytes()
         finding=next(f for f in result['variants'][0]['findings'] if f.get('repair'))
         response=c.post(f'/api/jobs/{job["id"]}/repair',json={'variant':'sequential','finding_ids':[finding['id']]})

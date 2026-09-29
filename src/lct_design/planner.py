@@ -17,15 +17,18 @@ def infer_json(system,payload,max_tokens=6000,vision=None,config=None,deadline=N
 def write_outline(content,slide_count,config=None,deadline=None):
     """Brief-only input: the model writes slide content; numbers are checked against the brief."""
     from .outline import build_sections
-    payload={'title':content.title,'purpose':content.purpose,'language':content.language,'slide_count':slide_count,'brief':content.brief}
+    payload={'title':content.title,'purpose':content.purpose,'language':content.language,'slide_count':slide_count,'brief':content.brief,
+             'speaker':content.speaker,'has_link':bool(content.link)}
     data,usage,model=infer_json((PROMPTS/'outline.md').read_text(encoding='utf-8'),payload,5000,config=config,deadline=deadline,cap=90)
     sections,warnings=build_sections(data,content.title+'\n'+content.brief,slide_count)
     return sections,warnings,usage,model
 
+from .slots import describe
+
 def catalogue(profile):
     semantics=profile.analysis.get('model_semantics',{}).get('patterns',{})
     return [{'id':p.id,'family':p.family,'background':p.background,'description':semantics.get(p.id,''),
-        'media_frame':bool(p.frames),'slots':[{'id':s.id,'role':s.role,'text_sample':s.text[:100],'font':s.font,'size':s.size,
+        'media_frame':bool(p.frames),'blocks':describe(p.blocks),'slots':[{'id':s.id,'role':s.role,'text_sample':s.text[:100],'font':s.font,'size':s.size,
           'box':[round(s.box.x/profile.width,3),round(s.box.y/profile.height,3),round(s.box.w/profile.width,3),round(s.box.h/profile.height,3)]} for s in p.slots[:30]]}
         for p in profile.patterns if p.family not in ('guide','code')][:100]
 
