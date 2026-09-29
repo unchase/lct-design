@@ -107,22 +107,19 @@ jobs:
           username: ${{ secrets.REGISTRY_USER }}
           password: ${{ secrets.REGISTRY_PASS }}
       - name: Build and publish tested revision
-        shell: powershell
+        # Git Bash: the host's PowerShell execution policy may forbid script files.
+        shell: bash
         env:
           REGISTRY_HOST: ${{ secrets.REGISTRY_HOST }}
           SOURCE_SHA: ${{ github.sha }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          $registry = $env:REGISTRY_HOST.Trim().TrimEnd('/')
-          if (-not $registry -or $registry -match '[/\s]') { throw 'REGISTRY_HOST must be a hostname, optionally with a port' }
-          if ($env:SOURCE_SHA -notmatch '^[0-9a-f]{40}$') { throw 'Invalid source revision' }
-          $repository = "$registry/inflake/forma"
-          $revisionImage = "${repository}:$($env:SOURCE_SHA)"
-          $mainImage = "${repository}:main"
-          docker build --pull --file Dockerfile --label "org.opencontainers.image.revision=$($env:SOURCE_SHA)" --tag $revisionImage --tag $mainImage .
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          docker push $revisionImage
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          docker push $mainImage
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "Published $revisionImage and $mainImage. Server activation is handled by Compose/Watchtower; this job does not verify the public service." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          set -euo pipefail
+          registry="$(printf '%s' "$REGISTRY_HOST" | tr -d '[:space:]')"; registry="${registry%/}"
+          if [[ -z "$registry" || "$registry" == */* ]]; then echo 'REGISTRY_HOST must be a hostname, optionally with a port' >&2; exit 1; fi
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then echo 'Invalid source revision' >&2; exit 1; fi
+          repository="$registry/inflake/forma"
+          docker build --pull --file Dockerfile --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            --tag "$repository:$SOURCE_SHA" --tag "$repository:main" .
+          docker push "$repository:$SOURCE_SHA"
+          docker push "$repository:main"
+          echo "Published $repository:$SOURCE_SHA and $repository:main. Server activation is handled by Compose/Watchtower; this job does not verify the public service." >> "$GITHUB_STEP_SUMMARY"
