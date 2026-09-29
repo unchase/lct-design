@@ -30,6 +30,7 @@ class Pattern(Model):
     background: str = 'FFFFFF'
     confidence: float = .7
     visual_features: list[float] = []
+    artwork: list[Box] = []
 
 class TemplateProfile(Model):
     version: str = '1.0'
@@ -71,6 +72,7 @@ class Section(Model):
     diagram_parents: list[int | None] | None = None
     diagram_assistant: int | None = None
     image: str | None = None
+    notes: str = Field(default='', max_length=5000)
 
     @model_validator(mode='after')
     def bounded_visual(self):
@@ -133,6 +135,7 @@ class DeckPlan(Model):
     mode: Literal['offline','live']
     model: str | None = None
     usage: dict = {}
+    outline_usage: dict = {}
     warnings: list[str] = []
 
 class Finding(Model):

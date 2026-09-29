@@ -85,3 +85,24 @@ def test_openrouter_balance_combines_account_and_key_limits(tmp_path,monkeypatch
         b=c.get('/api/provider/balance').json()
         assert b=={'available':True,'balance':28.67,'total_credits':200.0,'key_limit_remaining':12.5,'key_usage_daily':0.09}
         assert 'sk-secret' not in c.get('/api/provider/balance').text
+
+def test_single_call_timeout_is_not_reported_as_exhausted_budget(monkeypatch):
+    import httpx,pytest
+    from lct_design import provider
+    from lct_design.deadline import Deadline,BudgetExpired
+    from lct_design.provider import ProviderConfig,request
+    def slow(r):raise httpx.ReadTimeout('slow',request=r)
+    monkeypatch.setattr(provider,'TRANSPORT',httpx.MockTransport(slow))
+    cfg=ProviderConfig(base_url='http://localhost:8000/v1',model='m')
+    with pytest.raises(ValueError,match='не ответил'):request(cfg,'/chat/completions',{},timeout=5,deadline=Deadline(300))
+    with pytest.raises(BudgetExpired):request(cfg,'/chat/completions',{},timeout=5,deadline=Deadline(3))
+
+def test_openrouter_requests_prefer_fast_providers(monkeypatch):
+    import httpx,json as j
+    from lct_design import provider
+    from lct_design.provider import ProviderConfig,completion
+    sent=[]
+    monkeypatch.setattr(provider,'TRANSPORT',httpx.MockTransport(lambda r:(sent.append(j.loads(r.content)),httpx.Response(200,json={'choices':[{'message':{'content':'{}'}}]}))[1]))
+    completion(ProviderConfig(base_url='https://openrouter.ai/api/v1',model='m',api_key='k'),'s',{})
+    completion(ProviderConfig(base_url='http://localhost:8000/v1',model='m'),'s',{})
+    assert sent[0]['provider']=={'sort':'throughput'} and 'provider' not in sent[1]

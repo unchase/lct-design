@@ -16,7 +16,27 @@ def fit_text(text,box,size,scale):
     n=min(candidates)
     return n,estimate_lines(text,n,box.w-100000)*n*1.18>available
 
-def select_pattern(profile,slide,variant,index,visual_regions=None):
+def grow_size(text,box,size,scale,cap):
+    """Largest template type-scale size above size (up to cap) that still fits the box."""
+    available=max(1,box.h/12700-8)
+    for n in sorted({float(v) for v in scale if size<v<=cap},reverse=True):
+        if estimate_lines(text,n,box.w-100000)*n*1.18<=available*.9:return n
+    return size
+
+def variant_boxes(box,profile,variant,visual=False,items=2):
+    """Variant axes applied to one content region: two columns for comparison, inset focus."""
+    if variant=='comparison' and not visual and items>=2 and box.w>=profile.width*.4:
+        gap=profile.width*.025
+        return [Box(x=box.x,y=box.y,w=(box.w-gap)/2,h=box.h),Box(x=box.x+(box.w+gap)/2,y=box.y,w=(box.w-gap)/2,h=box.h)]
+    if variant=='focus' and not visual:
+        return [Box(x=box.x+box.w*.08,y=box.y+box.h*.08,w=box.w*.84,h=box.h*.84)]
+    return [box]
+
+def pattern_limit(slides):
+    """One composition may carry at most about a third of a deck."""
+    return max(2,math.ceil(slides*.34))
+
+def select_pattern(profile,slide,variant,index,visual_regions=None,usage=None,limit=None):
     eligible=[p for p in profile.patterns if p.family not in ('guide','code') and
               any(s.role=='title' and s.box.y<profile.height*.22 for s in p.slots)]
     eligible=eligible or [p for p in profile.patterns if p.family not in ('guide','code')] or profile.patterns
@@ -38,6 +58,11 @@ def select_pattern(profile,slide,variant,index,visual_regions=None):
         else:
             best=min(collision(p) for p in eligible)
             eligible=[p for p in eligible if collision(p)<=best+.005]
+    usage=usage or {}
+    if limit:
+        # Avoid monotony: once a composition hits its share, choose among the others.
+        rested=[p for p in eligible if usage.get(p.id,0)<limit]
+        if rested:eligible=rested
     def score(p):
         bodies=[s for s in p.slots if s.role=='body']
         title=next(s for s in p.slots if s.role=='title')
@@ -46,7 +71,8 @@ def select_pattern(profile,slide,variant,index,visual_regions=None):
         score=p.complexity*.12+len(bodies)*.12-title.box.w/profile.width
         score+=sum(3 for s in bodies if s.size>title.size*1.5)
         if variant=='comparison' and len(bodies) in (2,3):score-=.5
-        return score
+        if variant=='focus' and len(bodies)>1:score+=.5
+        return score+usage.get(p.id,0)*.35
     eligible.sort(key=score)
     top=eligible[:min(2,len(eligible))]
     return top[(index+(0 if variant=='sequential' else 1 if variant=='comparison' else 2))%len(top)]

@@ -3,7 +3,7 @@ from pathlib import Path
 from lxml import etree as ET
 from .package import NS,q,read_package,parse_xml,xml,relationships,rels_path,write_package,target_part
 from .models import Box
-from .layout import fit_text,select_pattern,body_boxes
+from .layout import fit_text,select_pattern,body_boxes,variant_boxes,grow_size
 from .visuals import element,sub,text_shape,table_shape,chart_parts,chart_workbook,frame,picture_shape
 
 SLIDE_CT='application/vnd.openxmlformats-officedocument.presentationml.slide+xml'
@@ -39,7 +39,9 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
     from .template import geometry
     visual_regions={}
     for pattern in profile.patterns:
-        regions=[]
+        regions=list(pattern.artwork)
+        if regions:
+            visual_regions[pattern.id]=regions;continue
         for picture in parse_xml(parts[pattern.part]).findall('.//p:pic',NS):
             box=geometry(picture,[picture])
             if box is None:continue
@@ -48,13 +50,17 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
             if not full_background:regions.append(box)
         visual_regions[pattern.id]=regions
     chartno=10000
+    from collections import Counter
+    from .layout import pattern_limit
+    usage=Counter();limit=pattern_limit(len(plan.slides))
     for index,slide in enumerate(plan.slides):
         choice=slide.layouts.get(variant)
         if choice:
             from .planner import validate_layouts
             validate_layouts({variant:choice.model_dump()},profile,[variant],bool(slide.chart or slide.table or slide.diagram or slide.image))
             pattern=next(p for p in profile.patterns if p.id==choice.pattern_id)
-        else:pattern=select_pattern(profile,slide,variant,index,visual_regions)
+        else:pattern=select_pattern(profile,slide,variant,index,visual_regions,usage,limit)
+        usage[pattern.id]+=1
         tree=parse_xml(parts[pattern.part]);spTree=tree.find('p:cSld/p:spTree',NS)
         newpart=f'ppt/slides/slide{index+10000}.xml';source_rels=relationships(parts,pattern.part)
         sr=parse_xml(parts[rels_path(pattern.part)]) if rels_path(pattern.part) in parts else ET.Element('{'+NS['rel']+'}Relationships',nsmap={None:NS['rel']})
@@ -80,6 +86,7 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
         objects=[];idbase=max([int(n.get('id','0')) for n in tree.findall('.//p:cNvPr',NS)]+[100])+10
         def text(text,box,size,role,bold=False):
             nonlocal idbase
+            if role.startswith('body-'):size=grow_size(text,box,size,profile.font_sizes,title.size*(.85 if variant=='focus' else .7))
             size,overflow=fit_text(text,box,size,profile.font_sizes)
             if repairs and f'{index+1}:{role}' in repairs:
                 size,overflow=fit_text(text,box,max(12,size*.82),list(range(12,int(size)+1)))
@@ -88,7 +95,9 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
                 'size':size,'color':title.color if role=='title' else base.color,'overflow':overflow});idbase+=1
         text(slide.title,title.box,title.size,'title',True)
         visual=bool(slide.chart or slide.table or slide.diagram or slide.image);boxes=body_boxes(pattern,profile,variant,visual)
-        if choice:boxes=[next(s.box for s in pattern.slots if s.id==sid) for sid in choice.body_slot_ids]
+        if choice:
+            boxes=[next(s.box for s in pattern.slots if s.id==sid) for sid in choice.body_slot_ids]
+            if len(boxes)==1:boxes=variant_boxes(boxes[0],profile,variant,visual,len(slide.bullets))
         box=boxes[0];accent=next((c for c in profile.colors if c not in ('FFFFFF','000000','111111') and int(c,16)<0xEEEEEE),'3366AA')
         if visual and slide.bullets:
             text('\n'.join(slide.bullets),Box(x=box.x,y=box.y,w=box.w,h=box.h*.2),min(base.size,18),'caption')
@@ -133,8 +142,8 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
         else:
             count=len(boxes);chunks=[slide.bullets[(len(slide.bullets)*j+count-1)//count:(len(slide.bullets)*(j+1)+count-1)//count] for j in range(count)]
             for j,(b,chunk) in enumerate(zip(boxes,chunks)):
-                if choice:base=next(s for s in pattern.slots if s.id==choice.body_slot_ids[j])
-                if chunk: text('\n'.join(chunk),b,min(base.size*1.2,32) if variant=='focus' else base.size,f'body-{j}')
+                if choice:base=next(s for s in pattern.slots if s.id==choice.body_slot_ids[min(j,len(choice.body_slot_ids)-1)])
+                if chunk: text('\n'.join(chunk),b,base.size,f'body-{j}')
         # Keep only relationships that are used, plus the slide layout.
         used={v for node in tree.iter() for k,v in node.attrib.items() if k.startswith('{'+NS['r']+'}')}
         for rel in list(sr):
@@ -149,7 +158,8 @@ def generate_deck(template,profile,plan,variant,output,repairs=None):
         ET.SubElement(ids,q('p:sldId'),{'id':str(256+index),q('r:id'):rid});add_override(types,newpart,SLIDE_CT)
         manifest['slides'].append({'number':index+1,'title':slide.title,'source_ids':slide.source_ids,'pattern_id':pattern.id,
             'layout_source':'llm' if choice else 'heuristic','body_slot_ids':choice.body_slot_ids if choice else [],
-            'source_slide':pattern.index,'scope':pattern.scope,'background':pattern.background,'objects':objects,'speaker_notes':slide.speaker_notes})
+            'source_slide':pattern.index,'scope':pattern.scope,'background':pattern.background,'objects':objects,'speaker_notes':slide.speaker_notes,
+            'artwork':[b.model_dump() for b in visual_regions.get(pattern.id,[])]})
     parts['ppt/presentation.xml']=xml(pres);parts['ppt/_rels/presentation.xml.rels']=xml(pr)
     # Remove stale template thumbnail, notes and metadata relationships from the reachable graph.
     rootrels=parse_xml(parts['_rels/.rels'])

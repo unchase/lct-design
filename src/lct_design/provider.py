@@ -118,8 +118,12 @@ async def _request(cfg,path,body,timeout):
 
 def request(cfg,path,body=None,timeout=75,deadline=None):
     if not cfg.base_url:raise ValueError('Не задан Base URL')
-    timeout=deadline.remaining(timeout) if deadline else timeout
-    return asyncio.run(_request(cfg,path,body,timeout))
+    requested=timeout;timeout=deadline.remaining(timeout) if deadline else timeout
+    try:return asyncio.run(_request(cfg,path,body,timeout))
+    except BudgetExpired:
+        # Only a call cut short by the shared budget exhausts it; a slow single call is a model error.
+        if deadline is not None and timeout<requested:raise
+        raise ValueError(f'Inference API не ответил за {requested:.0f} с; повторите генерацию') from None
 
 def completion(cfg,system,payload,max_tokens=6000,vision=None,deadline=None,vision_call=False,cap=75):
     content=json.dumps(payload,ensure_ascii=False)
@@ -132,6 +136,8 @@ def completion(cfg,system,payload,max_tokens=6000,vision=None,deadline=None,visi
     if cfg.disable_reasoning:
         if is_openrouter(cfg.base_url):body['reasoning']={'enabled':False}
         else:body['chat_template_kwargs']={'enable_thinking':False}  # vLLM/SGLang dialect
+    # OpenRouter routes one model to many hosts with very different speed; prefer the fastest.
+    if is_openrouter(cfg.base_url):body['provider']={'sort':'throughput'}
     result=request(cfg,'/chat/completions',body,timeout=cap,deadline=deadline)
     try:
         choice=result['choices'][0];raw=choice['message']['content']

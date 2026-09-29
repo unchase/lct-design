@@ -13,5 +13,8 @@ choose sufficient capacity for all words, readable type and complete facts. Nume
 and short captions are unsuitable for long prose. Prefer patterns with useful body areas.
 Make sequential a coherent narrative, comparison juxtapose related material where the template
 supports it, and focus emphasize one key message. Variation must stay within the source design.
+Vary compositions: within one variant no pattern may carry more than a third of the slides,
+and the three variants must look different — comparison uses two or three body slots where
+the template offers them, focus uses exactly one large body slot per text slide.
 Do not force variation when the template only has one usable pattern; preserve readability.
 Speaker text is assembled from the selected exact sources by code, not invented.

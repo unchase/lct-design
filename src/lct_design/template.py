@@ -6,7 +6,7 @@ from .package import NS,q,parse_xml,read_package,relationships
 from .models import Box,Slot,Pattern,TemplateProfile
 
 EMU=914400
-ANALYSIS_ALGORITHM='OOXML effective styles + geometry families v3'
+ANALYSIS_ALGORITHM='OOXML effective styles + geometry families + inherited artwork v5'
 
 def linked(parts,part,kind):
     return next((dest for k,dest in relationships(parts,part).values() if k==kind and dest in parts),None)
@@ -135,16 +135,25 @@ def analyze_template(path:Path)->TemplateProfile:
         n=len(body)-1;family='cover' if n<=0 else 'split' if n in (2,3) else 'content' if n<=6 else 'dense'
         if any(re.search(r'\b(body\s*\{|function\s*\(|import\s+|padding\s*:|def\s+\w+)',s.text) for s in body): family='code'
         elif title.box.y>height*.22: family='cover'
-        if any(x in title.text.lower() for x in ('шрифт','палитр','иконки','логотипы','инструкция')): family='guide'
+        if any(x in title.text.lower() for x in ('шрифт','палитр','иконки','логотипы','инструкция','palette','typography','font','logo','guideline','instruction','how to use')): family='guide'
         background='FFFFFF'
         for scope in (part,layout,master):
             if scope:
                 bg=parse_xml(parts[scope]).find('.//p:bg',NS)
                 if bg is not None: background=resolve_color(bg,colors,'FFFFFF');break
+        artwork=[];scopes=[tree]
+        if layout:
+            ltree=parse_xml(parts[layout]);scopes.append(ltree)
+            # Master artwork shows through unless the layout hides master shapes.
+            if master and ltree.get('showMasterSp','1') not in ('0','false'):scopes.append(parse_xml(parts[master]))
+        for picture in (pic for scope in scopes for pic in scope.findall('.//p:cSld/p:spTree//p:pic',NS)):
+            pb=geometry(picture,[picture])
+            # Full-bleed pictures are backgrounds; smaller ones are content artwork to avoid.
+            if pb and not (pb.x<=width*.03 and pb.y<=height*.03 and pb.x+pb.w>=width*.97 and pb.y+pb.h>=height*.97):artwork.append(pb)
         feature=[n/10,sum(s.box.w*s.box.h for s in body)/width/height,title.box.y/height,title.size/100]
         patterns.append(Pattern(id=f'p{i+1}',part=part,index=i+1,scope=master or theme or part,
             slots=slots,family=family,background=background,complexity=len(tree.findall('.//p:sp',NS))+len(tree.findall('.//p:pic',NS))*2,
-            visual_features=feature))
+            visual_features=feature,artwork=artwork))
     if not patterns: raise ValueError('No editable text slots found in the presentation')
     return TemplateProfile(hash=hashlib.sha256(Path(path).read_bytes()).hexdigest(),filename=Path(path).name,
         width=width,height=height,colors=[c for c,_ in allcolors.most_common(32)],fonts=list(allfonts),

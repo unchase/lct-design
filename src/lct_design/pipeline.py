@@ -77,11 +77,12 @@ def run_job(store,job):
         persist_variant(item,out);return item
     expired=False
     try:
-        stage('LLM: структура и три композиции' if cfg else 'Структура и содержание')
+        stage(('LLM: содержание, структура и три композиции' if not request.content.sections else 'LLM: структура и три композиции') if cfg else 'Структура и содержание')
         if payload.get('parent_id'):
             plan=DeckPlan.model_validate_json((root/'jobs'/payload['parent_id']/'plan.json').read_text(encoding='utf-8'))
         else:
             plan=plan_content(request.content,profile,request.slide_count,request.mode,cfg,deadline,request.variants)
+            if cfg and plan.outline_usage:usage('outline',plan.model,plan.outline_usage)
             if cfg:usage('plan',plan.model,plan.usage)
         from .speech import speaker_text,speech_document
         for slide in plan.slides:
